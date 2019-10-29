@@ -13,6 +13,7 @@ import org.h2.api.ErrorCode;
 import org.h2.command.CommandInterface;
 import org.h2.command.Prepared;
 import org.h2.engine.Database;
+import org.h2.engine.DbObject;
 import org.h2.engine.Session;
 import org.h2.expression.Alias;
 import org.h2.expression.Expression;
@@ -767,7 +768,7 @@ public abstract class Query extends Prepared {
     public final long getMaxDataModificationId() {
         ExpressionVisitor visitor = ExpressionVisitor.getMaxModificationIdVisitor();
         isEverything(visitor);
-        return visitor.getMaxDataModificationId();
+        return Math.max(visitor.getMaxDataModificationId(), session.getSnapshotDataModificationId());
     }
 
     /**
@@ -893,6 +894,12 @@ public abstract class Query extends Prepared {
         return result;
     }
 
+    /**
+     * Convert a result into a distinct result, using the current columns.
+     *
+     * @param result the source
+     * @return the distinct result
+     */
     LocalResult convertToDistinct(ResultInterface result) {
         LocalResult distinctResult = session.getDatabase().getResultFactory().create(session,
             expressionArray, visibleColumnCount, resultColumnCount);
@@ -922,4 +929,9 @@ public abstract class Query extends Prepared {
                 session.getUser(), alias, this, topQuery);
     }
 
+    @Override
+    public void collectDependencies(HashSet<DbObject> dependencies) {
+        ExpressionVisitor visitor = ExpressionVisitor.getDependenciesVisitor(dependencies);
+        isEverything(visitor);
+    }
 }

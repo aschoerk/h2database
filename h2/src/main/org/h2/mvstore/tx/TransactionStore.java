@@ -16,6 +16,7 @@ import org.h2.mvstore.Cursor;
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.h2.mvstore.RootReference;
 import org.h2.mvstore.WriteBuffer;
 import org.h2.mvstore.type.DataType;
 import org.h2.mvstore.type.ObjectDataType;
@@ -35,7 +36,7 @@ public class TransactionStore {
     /**
      * Default blocked transaction timeout
      */
-    private final int timeoutMillis;
+    final int timeoutMillis;
 
     /**
      * The persisted map of prepared transactions.
@@ -91,8 +92,14 @@ public class TransactionStore {
     private final AtomicReferenceArray<Transaction> transactions =
                                                         new AtomicReferenceArray<>(MAX_OPEN_TRANSACTIONS + 1);
 
+    /**
+     * The prefix for undo log entries.
+     */
     public static final String UNDO_LOG_NAME_PREFIX = "undoLog";
-    private static final char UNDO_LOG_COMMITTED = '-'; // must come before open in lexicographical order
+
+    // must come before open in lexicographical order
+    private static final char UNDO_LOG_COMMITTED = '-';
+
     private static final char UNDO_LOG_OPEN = '.';
 
     /**
@@ -100,7 +107,9 @@ public class TransactionStore {
      */
     // TODO: introduce constructor parameter instead of a static field, driven by URL parameter
     private static final int MAX_OPEN_TRANSACTIONS = 65535;
-    private static final Object[] COMMIT_MARKER = new Object[] {-1, null, null}; // -1 - bogus map id
+
+    // -1 is a bogus map id
+    private static final Object[] COMMIT_MARKER = new Object[] {-1, null, null};
 
 
     /**
@@ -110,9 +119,9 @@ public class TransactionStore {
      * @param transactionId of the corresponding transaction
      * @return undo log name
      */
-    public static String getUndoLogName(int transactionId) {
-        return UNDO_LOG_NAME_PREFIX + UNDO_LOG_OPEN +
-                (transactionId > 0 ? String.valueOf(transactionId) : "");
+    private static String getUndoLogName(int transactionId) {
+        return transactionId > 0 ? UNDO_LOG_NAME_PREFIX + UNDO_LOG_OPEN + transactionId
+                : UNDO_LOG_NAME_PREFIX + UNDO_LOG_OPEN;
     }
 
     /**
@@ -341,10 +350,6 @@ public class TransactionStore {
      * @return the transaction
      */
     public Transaction begin(RollbackListener listener, int timeoutMillis, int ownerId) {
-
-        if(timeoutMillis <= 0) {
-            timeoutMillis = this.timeoutMillis;
-        }
         Transaction transaction = registerTransaction(0, Transaction.STATUS_OPEN, null, 0,
                 timeoutMillis, ownerId, listener);
         return transaction;
@@ -597,6 +602,46 @@ public class TransactionStore {
         }
     }
 
+    /**
+     * Get the root references (snapshots) for undo-log maps.
+     * Those snapshots can potentially be used to optimize TransactionMap.size().
+     *
+     * @return the array of root references or null if snapshotting is not possible
+     */
+    RootReference[] collectUndoLogRootReferences() {
+        BitSet opentransactions = openTransactions.get();
+        RootReference[] undoLogRootReferences = new RootReference[opentransactions.length()];
+        for (int i = opentransactions.nextSetBit(0); i >= 0; i = opentransactions.nextSetBit(i+1)) {
+            MVMap<Long, Object[]> undoLog = undoLogs[i];
+            if (undoLog != null) {
+                RootReference rootReference = undoLog.getRoot();
+                if (rootReference.needFlush()) {
+                    // abort attempt to collect snapshots for all undo logs
+                    // because map's append buffer can't be flushed from a non-owning thread
+                    return null;
+                }
+                undoLogRootReferences[i] = rootReference;
+            }
+        }
+        return undoLogRootReferences;
+    }
+
+    /**
+     * Calculate the size for undo log entries.
+     *
+     * @param undoLogRootReferences the root references
+     * @return the number of key-value pairs
+     */
+    static long calculateUndoLogsTotalSize(RootReference[] undoLogRootReferences) {
+        long undoLogsTotalSize = 0;
+        for (RootReference rootReference : undoLogRootReferences) {
+            if (rootReference != null) {
+                undoLogsTotalSize += rootReference.getTotalCount();
+            }
+        }
+        return undoLogsTotalSize;
+    }
+
     private boolean isUndoEmpty() {
         BitSet openTrans = openTransactions.get();
         for (int i = openTrans.nextSetBit(0); i >= 0; i = openTrans.nextSetBit(i + 1)) {
@@ -698,11 +743,6 @@ public class TransactionStore {
                 return result;
             }
 
-            @Override
-            public void remove() {
-                throw DataUtils.newUnsupportedOperationException("remove");
-            }
-
         };
     }
 
@@ -754,13 +794,7 @@ public class TransactionStore {
                         VersionedValue existingValue, VersionedValue restoredValue);
     }
 
-    private static final RollbackListener ROLLBACK_LISTENER_NONE = new RollbackListener() {
-        @Override
-        public void onRollback(MVMap<Object, VersionedValue> map, Object key,
-                                VersionedValue existingValue, VersionedValue restoredValue) {
-            // do nothing
-        }
-    };
+    private static final RollbackListener ROLLBACK_LISTENER_NONE = (map, key, existingValue, restoredValue) -> {};
 
     /**
      * A data type that contains an array of objects with the specified data

@@ -5,7 +5,7 @@
  */
 package org.h2.expression;
 
-import org.h2.engine.Mode;
+import org.h2.engine.Database;
 import org.h2.engine.Session;
 import org.h2.expression.IntervalOperation.IntervalOpType;
 import org.h2.expression.function.Function;
@@ -54,12 +54,25 @@ public class BinaryOperation extends Expression {
     private OpType opType;
     private Expression left, right;
     private TypeInfo type;
+    private TypeInfo forcedType;
     private boolean convertRight = true;
 
     public BinaryOperation(OpType opType, Expression left, Expression right) {
         this.opType = opType;
         this.left = left;
         this.right = right;
+    }
+
+    /**
+     * Sets a forced data type of a datetime minus datetime operation.
+     *
+     * @param forcedType the forced data type
+     */
+    public void setForcedType(TypeInfo forcedType) {
+        if (opType != OpType.MINUS) {
+            throw getUnexpectedForcedTypeException();
+        }
+        this.forcedType = forcedType;
     }
 
     @Override
@@ -90,11 +103,11 @@ public class BinaryOperation extends Expression {
 
     @Override
     public Value getValue(Session session) {
-        Mode mode = session.getDatabase().getMode();
-        Value l = left.getValue(session).convertTo(type, mode, null);
+        Database database = session.getDatabase();
+        Value l = left.getValue(session).convertTo(type, database, true, null);
         Value r = right.getValue(session);
         if (convertRight) {
-            r = r.convertTo(type, mode, null);
+            r = r.convertTo(type, database, true, null);
         }
         switch (opType) {
         case PLUS:
@@ -155,9 +168,14 @@ public class BinaryOperation extends Expression {
                     type = TypeInfo.TYPE_DECIMAL_DEFAULT;
                 }
             } else if (DataType.isIntervalType(l) || DataType.isIntervalType(r)) {
+                if (forcedType != null) {
+                    throw getUnexpectedForcedTypeException();
+                }
                 return optimizeInterval(session, l, r);
             } else if (DataType.isDateTimeType(l) || DataType.isDateTimeType(r)) {
                 return optimizeDateTime(session, l, r);
+            } else if (forcedType != null) {
+                throw getUnexpectedForcedTypeException();
             } else {
                 int dataType = Value.getHigherOrder(l, r);
                 if (dataType == Value.ENUM) {
@@ -278,7 +296,8 @@ public class BinaryOperation extends Expression {
                         right).optimize(session);
             }
             case Value.TIME:
-                if (r == Value.TIME || r == Value.TIMESTAMP_TZ) {
+            case Value.TIME_TZ:
+                if (r == Value.TIME || r == Value.TIME_TZ || r == Value.TIMESTAMP_TZ) {
                     type = TypeInfo.getTypeInfo(r);
                     return this;
                 } else { // DATE, TIMESTAMP
@@ -294,6 +313,9 @@ public class BinaryOperation extends Expression {
             case Value.TIMESTAMP_TZ:
                 switch (r) {
                 case Value.INT: {
+                    if (forcedType != null) {
+                        throw getUnexpectedForcedTypeException();
+                    }
                     // Oracle date subtract
                     return Function.getFunctionWithArgs(session.getDatabase(), Function.DATEADD,
                             ValueExpression.get(ValueString.get("DAY")), //
@@ -303,6 +325,9 @@ public class BinaryOperation extends Expression {
                 case Value.DECIMAL:
                 case Value.FLOAT:
                 case Value.DOUBLE: {
+                    if (forcedType != null) {
+                        throw getUnexpectedForcedTypeException();
+                    }
                     // Oracle date subtract
                     return Function.getFunctionWithArgs(session.getDatabase(), Function.DATEADD,
                                 ValueExpression.get(ValueString.get("SECOND")),
@@ -311,17 +336,19 @@ public class BinaryOperation extends Expression {
                                 left).optimize(session);
                 }
                 case Value.TIME:
+                case Value.TIME_TZ:
                     type = TypeInfo.TYPE_TIMESTAMP;
                     return this;
                 case Value.DATE:
                 case Value.TIMESTAMP:
                 case Value.TIMESTAMP_TZ:
-                    return new IntervalOperation(IntervalOpType.DATETIME_MINUS_DATETIME, left, right);
+                    return new IntervalOperation(IntervalOpType.DATETIME_MINUS_DATETIME, left, right, forcedType);
                 }
                 break;
             case Value.TIME:
-                if (r == Value.TIME) {
-                    return new IntervalOperation(IntervalOpType.DATETIME_MINUS_DATETIME, left, right);
+            case Value.TIME_TZ:
+                if (r == Value.TIME || r == Value.TIME_TZ) {
+                    return new IntervalOperation(IntervalOpType.DATETIME_MINUS_DATETIME, left, right, forcedType);
                 }
                 break;
             }
@@ -353,6 +380,13 @@ public class BinaryOperation extends Expression {
     private DbException getUnsupported(int l, int r) {
         return DbException.getUnsupportedException(
                 DataType.getDataType(l).name + ' ' + getOperationToken() + ' ' + DataType.getDataType(r).name);
+    }
+
+    private DbException getUnexpectedForcedTypeException() {
+        StringBuilder builder = getSQL(new StringBuilder(), false);
+        int index = builder.length();
+        return DbException.getSyntaxError(
+                IntervalOperation.getForcedTypeSQL(builder.append(' '), forcedType).toString(), index, "");
     }
 
     private void swap() {
@@ -403,6 +437,15 @@ public class BinaryOperation extends Expression {
         default:
             throw new IndexOutOfBoundsException();
         }
+    }
+
+    /**
+     * Returns the type of this binary operation.
+     *
+     * @return the type of this binary operation
+     */
+    public OpType getOperationType() {
+        return opType;
     }
 
 }

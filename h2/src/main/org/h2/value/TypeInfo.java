@@ -5,10 +5,11 @@
  */
 package org.h2.value;
 
+import java.util.Objects;
 import org.h2.api.CustomDataTypesHandler;
 import org.h2.api.ErrorCode;
 import org.h2.api.IntervalQualifier;
-import org.h2.engine.Mode;
+import org.h2.engine.CastDataProvider;
 import org.h2.message.DbException;
 import org.h2.util.JdbcUtils;
 import org.h2.util.MathUtils;
@@ -163,6 +164,11 @@ public class TypeInfo {
      */
     public static final TypeInfo TYPE_JSON;
 
+    /**
+     * TIME WITH TIME ZONE type with maximum parameters.
+     */
+    public static final TypeInfo TYPE_TIME_TZ;
+
     private static final TypeInfo[] TYPE_INFOS_BY_VALUE_TYPE;
 
     private final int valueType;
@@ -233,6 +239,8 @@ public class TypeInfo {
         TYPE_INTERVAL_HOUR_TO_SECOND = infos[Value.INTERVAL_HOUR_TO_SECOND];
         infos[Value.ROW] = TYPE_ROW = new TypeInfo(Value.ROW, Integer.MAX_VALUE, 0, Integer.MAX_VALUE, null);
         infos[Value.JSON] = TYPE_JSON = new TypeInfo(Value.JSON, Integer.MAX_VALUE, 0, Integer.MAX_VALUE, null);
+        infos[Value.TIME_TZ] = TYPE_TIME_TZ = new TypeInfo(Value.TIME_TZ, ValueTimeTimeZone.MAXIMUM_PRECISION,
+                ValueTime.MAXIMUM_SCALE, ValueTimeTimeZone.MAXIMUM_PRECISION, null);
         TYPE_INFOS_BY_VALUE_TYPE = infos;
     }
 
@@ -317,6 +325,13 @@ public class TypeInfo {
             int d = scale == 0 ? 8 : 9 + scale;
             return new TypeInfo(Value.TIME, d, scale, d, null);
         }
+        case Value.TIME_TZ: {
+            if (scale < 0 || scale >= ValueTime.MAXIMUM_SCALE) {
+                return TYPE_TIME_TZ;
+            }
+            int d = scale == 0 ? 14 : 15 + scale;
+            return new TypeInfo(Value.TIME_TZ, d, scale, d, null);
+        }
         case Value.TIMESTAMP: {
             if (scale < 0 || scale >= ValueTimestamp.MAXIMUM_SCALE) {
                 return TYPE_TIMESTAMP;
@@ -354,9 +369,12 @@ public class TypeInfo {
             return new TypeInfo(type, precision, 0, MathUtils.convertLongToInt(precision), null);
         case Value.ARRAY:
             if (precision < 0 || precision >= Integer.MAX_VALUE) {
-                return TYPE_ARRAY;
+                if (extTypeInfo == null) {
+                    return TYPE_ARRAY;
+                }
+                precision = Integer.MAX_VALUE;
             }
-            return new TypeInfo(Value.ARRAY, precision, 0, Integer.MAX_VALUE, null);
+            return new TypeInfo(Value.ARRAY, precision, 0, Integer.MAX_VALUE, extTypeInfo);
         case Value.STRING_FIXED:
             if (precision < 0 || precision > Integer.MAX_VALUE) {
                 precision = Integer.MAX_VALUE;
@@ -482,8 +500,10 @@ public class TypeInfo {
      *
      * @param value
      *            value to cast
-     * @param mode
-     *            database mode
+     * @param provider
+     *            the cast information provider
+     * @param forComparison
+     *            if {@code true}, perform cast for comparison operation
      * @param convertPrecision
      *            if {@code true}, value is truncated to the precision of data
      *            type when possible, if {@code false} an exception in thrown
@@ -494,8 +514,10 @@ public class TypeInfo {
      * @throws DbException
      *             if value cannot be casted to this data type
      */
-    public Value cast(Value value, Mode mode, boolean convertPrecision, Object column) {
-        value = value.convertTo(this, mode, column).convertScale(mode.convertOnlyToSmallerScale, scale);
+    public Value cast(Value value, CastDataProvider provider, boolean forComparison,
+            boolean convertPrecision, Object column) {
+        value = value.convertTo(this, provider, forComparison, column) //
+                .convertScale(provider.getMode().convertOnlyToSmallerScale, scale);
         if (convertPrecision) {
             value = value.convertPrecision(precision);
         } else if (!value.checkPrecision(precision)) {
@@ -527,48 +549,104 @@ public class TypeInfo {
      * @return the specified string builder
      */
     public StringBuilder getSQL(StringBuilder builder) {
-        DataType dataType = DataType.getDataType(valueType);
-        if (valueType == Value.TIMESTAMP_TZ) {
-            builder.append("TIMESTAMP");
-        } else {
-            builder.append(dataType.name);
-        }
         switch (valueType) {
         case Value.DECIMAL:
+            // Can be DECIMAL or NUMERIC
+            builder.append(DataType.getDataType(valueType).name);
             builder.append('(').append(precision).append(", ").append(scale).append(')');
-            break;
-        case Value.GEOMETRY:
-            if (extTypeInfo == null) {
-                break;
-            }
-            //$FALL-THROUGH$
-        case Value.ENUM:
-            builder.append(extTypeInfo.getCreateSQL());
             break;
         case Value.BYTES:
         case Value.STRING:
         case Value.STRING_IGNORECASE:
         case Value.STRING_FIXED:
+            builder.append(DataType.getDataType(valueType).name);
             if (precision < Integer.MAX_VALUE) {
                 builder.append('(').append(precision).append(')');
             }
             break;
         case Value.TIME:
+        case Value.TIME_TZ:
+            builder.append("TIME");
+            if (scale != ValueTime.DEFAULT_SCALE) {
+                builder.append('(').append(scale).append(')');
+            }
+            if (valueType == Value.TIME_TZ) {
+                builder.append(" WITH TIME ZONE");
+            }
+            break;
         case Value.TIMESTAMP:
         case Value.TIMESTAMP_TZ:
-            if (scale != dataType.defaultScale) {
+            builder.append("TIMESTAMP");
+            if (scale != ValueTimestamp.DEFAULT_SCALE) {
                 builder.append('(').append(scale).append(')');
             }
             if (valueType == Value.TIMESTAMP_TZ) {
                 builder.append(" WITH TIME ZONE");
             }
             break;
+        case Value.INTERVAL_YEAR:
+        case Value.INTERVAL_MONTH:
+        case Value.INTERVAL_DAY:
+        case Value.INTERVAL_HOUR:
+        case Value.INTERVAL_MINUTE:
+        case Value.INTERVAL_SECOND:
+        case Value.INTERVAL_YEAR_TO_MONTH:
+        case Value.INTERVAL_DAY_TO_HOUR:
+        case Value.INTERVAL_DAY_TO_MINUTE:
+        case Value.INTERVAL_DAY_TO_SECOND:
+        case Value.INTERVAL_HOUR_TO_MINUTE:
+        case Value.INTERVAL_HOUR_TO_SECOND:
+        case Value.INTERVAL_MINUTE_TO_SECOND:
+            IntervalQualifier.valueOf(valueType - Value.INTERVAL_YEAR).getTypeName(builder,
+                    precision == ValueInterval.DEFAULT_PRECISION ? -1 : (int) precision,
+                    scale == ValueInterval.DEFAULT_SCALE ? -1 : scale, false);
+            break;
         case Value.ARRAY:
+            if (extTypeInfo != null) {
+                builder.append(extTypeInfo.getCreateSQL()).append(' ');
+            }
+            builder.append("ARRAY");
             if (precision < Integer.MAX_VALUE) {
                 builder.append('[').append(precision).append(']');
             }
+            break;
+        case Value.ENUM:
+            builder.append("ENUM").append(extTypeInfo.getCreateSQL());
+            break;
+        case Value.GEOMETRY:
+            builder.append("GEOMETRY");
+            if (extTypeInfo != null) {
+                builder.append(extTypeInfo.getCreateSQL());
+            }
+            break;
+        default:
+            builder.append(DataType.getDataType(valueType).name);
         }
         return builder;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 1;
+        result = 31 * result + valueType;
+        result = 31 * result + (int) (precision ^ (precision >>> 32));
+        result = 31 * result + scale;
+        result = 31 * result + displaySize;
+        result = 31 * result + ((extTypeInfo == null) ? 0 : extTypeInfo.hashCode());
+        return result;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || obj.getClass() != TypeInfo.class) {
+            return false;
+        }
+        TypeInfo other = (TypeInfo) obj;
+        return valueType == other.valueType && precision == other.precision && scale == other.scale
+                && displaySize == other.displaySize && Objects.equals(extTypeInfo, other.extTypeInfo);
     }
 
     @Override

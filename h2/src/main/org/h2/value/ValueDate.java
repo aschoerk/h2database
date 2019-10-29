@@ -9,11 +9,13 @@ import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.TimeZone;
 
 import org.h2.api.ErrorCode;
+import org.h2.engine.CastDataProvider;
 import org.h2.message.DbException;
 import org.h2.util.DateTimeUtils;
-import org.h2.util.LocalDateTimeUtils;
+import org.h2.util.JSR310Utils;
 
 /**
  * Implementation of the DATE data type.
@@ -29,6 +31,9 @@ public class ValueDate extends Value {
     private final long dateValue;
 
     private ValueDate(long dateValue) {
+        if (dateValue < DateTimeUtils.MIN_DATE_VALUE || dateValue > DateTimeUtils.MAX_DATE_VALUE) {
+            throw new IllegalArgumentException("dateValue out of range " + dateValue);
+        }
         this.dateValue = dateValue;
     }
 
@@ -45,23 +50,14 @@ public class ValueDate extends Value {
     /**
      * Get or create a date value for the given date.
      *
+     * @param timeZone time zone, or {@code null} for default
      * @param date the date
      * @return the value
      */
-    public static ValueDate get(Date date) {
+    public static ValueDate get(TimeZone timeZone, Date date) {
         long ms = date.getTime();
-        return fromDateValue(DateTimeUtils.dateValueFromLocalMillis(ms + DateTimeUtils.getTimeZoneOffset(ms)));
-    }
-
-    /**
-     * Calculate the date value (in the default timezone) from a given time in
-     * milliseconds in UTC.
-     *
-     * @param ms the milliseconds
-     * @return the value
-     */
-    public static ValueDate fromMillis(long ms) {
-        return fromDateValue(DateTimeUtils.dateValueFromLocalMillis(ms + DateTimeUtils.getTimeZoneOffset(ms)));
+        return fromDateValue(DateTimeUtils.dateValueFromLocalMillis(
+                ms + (timeZone == null ? DateTimeUtils.getTimeZoneOffsetMillis(ms) : timeZone.getOffset(ms))));
     }
 
     /**
@@ -84,8 +80,8 @@ public class ValueDate extends Value {
     }
 
     @Override
-    public Date getDate() {
-        return DateTimeUtils.convertDateValueToDate(dateValue);
+    public Date getDate(TimeZone timeZone) {
+        return new Date(DateTimeUtils.getMillis(timeZone, dateValue, 0));
     }
 
     @Override
@@ -100,20 +96,19 @@ public class ValueDate extends Value {
 
     @Override
     public String getString() {
-        StringBuilder buff = new StringBuilder(PRECISION);
-        DateTimeUtils.appendDate(buff, dateValue);
-        return buff.toString();
+        StringBuilder builder = new StringBuilder(PRECISION);
+        DateTimeUtils.appendDate(builder, dateValue);
+        return builder.toString();
     }
 
     @Override
     public StringBuilder getSQL(StringBuilder builder) {
-        builder.append("DATE '");
-        DateTimeUtils.appendDate(builder, dateValue);
+        DateTimeUtils.appendDate(builder.append("DATE '"), dateValue);
         return builder.append('\'');
     }
 
     @Override
-    public int compareTypeSafe(Value o, CompareMode mode) {
+    public int compareTypeSafe(Value o, CompareMode mode, CastDataProvider provider) {
         return Long.compare(dateValue, ((ValueDate) o).dateValue);
     }
 
@@ -133,20 +128,18 @@ public class ValueDate extends Value {
 
     @Override
     public Object getObject() {
-        return getDate();
+        return getDate(null);
     }
 
     @Override
     public void set(PreparedStatement prep, int parameterIndex) throws SQLException {
-        if (LocalDateTimeUtils.isJava8DateApiPresent()) {
-            try {
-                prep.setObject(parameterIndex, LocalDateTimeUtils.valueToLocalDate(this), Types.DATE);
-                return;
-            } catch (SQLException ignore) {
-                // Nothing to do
-            }
+        try {
+            prep.setObject(parameterIndex, JSR310Utils.valueToLocalDate(this), Types.DATE);
+            return;
+        } catch (SQLException ignore) {
+            // Nothing to do
         }
-        prep.setDate(parameterIndex, getDate());
+        prep.setDate(parameterIndex, getDate(null));
     }
 
 }

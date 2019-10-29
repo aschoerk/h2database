@@ -279,6 +279,7 @@ public class TestTools extends TestDb {
         rs.addRow(BigInteger.ONE, null, true, null, BigDecimal.ONE, 1d, null, null, null, null, null);
         rs.addRow(BigInteger.ZERO, null, false, null, BigDecimal.ZERO, 0d, null, null, null, null, null);
         rs.addRow(null, null, null, null, null, null, null, null, null, null, null);
+        rs.addRow(null, null, true, null, null, null, null, null, null, null, null);
 
         rs.next();
 
@@ -396,6 +397,12 @@ public class TestTools extends TestDb {
         assertNull(rs.getBinaryStream(12));
         assertTrue(rs.wasNull());
 
+        assertTrue(rs.next());
+        assertTrue(rs.getBoolean(3));
+        assertFalse(rs.wasNull());
+        assertNull(rs.getObject(6, Float.class));
+        assertTrue(rs.wasNull());
+
         // all updateX methods
         for (Method m: rs.getClass().getMethods()) {
             if (m.getName().startsWith("update")) {
@@ -490,6 +497,7 @@ public class TestTools extends TestDb {
         assertTrue(rs.next());
         assertFalse(rs.isClosed());
         assertEquals(1, rs.getRow());
+        assertTrue(rs.next());
         assertTrue(rs.next());
         assertTrue(rs.next());
         assertTrue(rs.next());
@@ -1130,12 +1138,12 @@ public class TestTools extends TestDb {
             final int prt = tcpServerWithPassword.getPort();
             remainingServers.add(tcpServerWithPassword);
             // must not be able to create new db
-            new AssertThrows(ErrorCode.DATABASE_NOT_FOUND_2) {
+            new AssertThrows(ErrorCode.REMOTE_DATABASE_NOT_FOUND_1) {
                 @Override
                 public void test() throws SQLException {
                     getConnection("jdbc:h2:tcp://localhost:"+prt+"/test2", "sa", "");
             }};
-            new AssertThrows(ErrorCode.DATABASE_NOT_FOUND_2) {
+            new AssertThrows(ErrorCode.REMOTE_DATABASE_NOT_FOUND_1) {
                 @Override
                 public void test() throws SQLException {
                     getConnection("jdbc:h2:tcp://localhost:"+prt+"/test2;ifexists=false", "sa", "");

@@ -84,7 +84,6 @@ import org.h2.test.db.TestTransaction;
 import org.h2.test.db.TestTriggersConstraints;
 import org.h2.test.db.TestTwoPhaseCommit;
 import org.h2.test.db.TestUpgrade;
-import org.h2.test.db.TestUsingIndex;
 import org.h2.test.db.TestView;
 import org.h2.test.db.TestViewAlterTable;
 import org.h2.test.db.TestViewDropView;
@@ -189,7 +188,6 @@ import org.h2.test.unit.TestExit;
 import org.h2.test.unit.TestFile;
 import org.h2.test.unit.TestFileLock;
 import org.h2.test.unit.TestFileLockProcess;
-import org.h2.test.unit.TestFileLockSerialized;
 import org.h2.test.unit.TestFileSystem;
 import org.h2.test.unit.TestFtp;
 import org.h2.test.unit.TestGeometryUtils;
@@ -313,11 +311,6 @@ java org.h2.test.TestAll timer
      * If code coverage is enabled.
      */
     public boolean codeCoverage;
-
-    /**
-     * If the multi-threaded mode should be used.
-     */
-    public boolean multiThreaded;
 
     /**
      * If lazy queries should be used.
@@ -489,7 +482,6 @@ reopen org.h2.test.unit.TestPageStore
 -Xmx1500m -D reopenOffset=3 -D reopenShift=1
 
 power failure test
-power failure test: MULTI_THREADED=TRUE
 power failure test: larger binaries and additional index.
 power failure test with randomly generating / dropping indexes and tables.
 
@@ -620,7 +612,6 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         // memory is a good match for multi-threaded, makes things happen
         // faster, more chance of exposing race conditions
         memory = true;
-        multiThreaded = true;
         test();
         if (vmlens) {
             return;
@@ -635,32 +626,22 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         // lazy
         lazy = true;
         memory = true;
-        multiThreaded = true;
         test();
         lazy = false;
 
         // but sometimes race conditions need bigger windows
         memory = false;
-        multiThreaded = true;
-        test();
-        testAdditional();
-
-        // a more normal setup
-        memory = false;
-        multiThreaded = false;
         test();
         testAdditional();
 
         // basic pagestore testing
         memory = false;
-        multiThreaded = false;
         mvStore = false;
         test();
         testAdditional();
 
         mvStore = true;
         memory = true;
-        multiThreaded = false;
         networked = true;
         test();
 
@@ -722,12 +703,10 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         cipher = null;
 
         memory = true;
-        multiThreaded = true;
         test();
         testAdditional();
         testUtils();
 
-        multiThreaded = false;
         mvStore = false;
         test();
         // testUnit();
@@ -922,14 +901,12 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         addTest(createTest("org.h2.test.unit.TestServlet"));
         addTest(new TestTimeStampWithTimeZone());
         addTest(new TestUpgrade());
-        addTest(new TestUsingIndex());
         addTest(new TestValue());
         addTest(new TestWeb());
 
         runAddedTests();
 
         addTest(new TestCluster());
-        addTest(new TestFileLockSerialized());
         addTest(new TestFileLockProcess());
         addTest(new TestDefrag());
         addTest(new TestTools());
@@ -1129,7 +1106,7 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
      */
     public static void printSystemInfo() {
         Properties prop = System.getProperties();
-        System.out.println("H2 " + Constants.getFullVersion() +
+        System.out.println("H2 " + Constants.FULL_VERSION +
                 " @ " + new java.sql.Timestamp(System.currentTimeMillis()).toString());
         System.out.println("Java " +
                 prop.getProperty("java.runtime.version") + ", " +
@@ -1164,7 +1141,6 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         appendIf(buff, networked, "net");
         appendIf(buff, memory, "memory");
         appendIf(buff, codeCoverage, "codeCoverage");
-        appendIf(buff, multiThreaded, "multiThreaded");
         appendIf(buff, cipher != null, cipher);
         appendIf(buff, cacheType != null, cacheType);
         appendIf(buff, smallLog, "smallLog");

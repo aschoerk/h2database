@@ -15,6 +15,7 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import org.h2.api.ErrorCode;
 import org.h2.api.IntervalQualifier;
+import org.h2.engine.CastDataProvider;
 import org.h2.engine.Database;
 import org.h2.engine.Mode;
 import org.h2.message.DbException;
@@ -26,6 +27,7 @@ import org.h2.result.ResultInterface;
 import org.h2.result.SimpleResult;
 import org.h2.result.SortOrder;
 import org.h2.store.DataHandler;
+import org.h2.util.DateTimeUtils;
 import org.h2.util.JdbcUtils;
 import org.h2.util.Utils;
 import org.h2.value.CompareMode;
@@ -55,6 +57,7 @@ import org.h2.value.ValueString;
 import org.h2.value.ValueStringFixed;
 import org.h2.value.ValueStringIgnoreCase;
 import org.h2.value.ValueTime;
+import org.h2.value.ValueTimeTimeZone;
 import org.h2.value.ValueTimestamp;
 import org.h2.value.ValueTimestampTimeZone;
 import org.h2.value.ValueUuid;
@@ -106,23 +109,27 @@ public class ValueDataType implements DataType {
     private static final int SPATIAL_KEY_2D = 132;
     private static final int CUSTOM_DATA_TYPE = 133;
     private static final int JSON = 134;
+    private static final int TIMESTAMP_TZ_2 = 135;
+    private static final int TIME_TZ = 136;
 
     final DataHandler handler;
+    final CastDataProvider provider;
     final CompareMode compareMode;
     protected final Mode mode;
     final int[] sortTypes;
     SpatialDataType spatialType;
 
     public ValueDataType() {
-        this(CompareMode.getInstance(null, 0), null, null, null);
+        this(null, CompareMode.getInstance(null, 0), null, null, null);
     }
 
     public ValueDataType(Database database, int[] sortTypes) {
-        this(database.getCompareMode(), database.getMode(), database, sortTypes);
+        this(database, database.getCompareMode(), database.getMode(), database, sortTypes);
     }
 
-    private ValueDataType(CompareMode compareMode, Mode mode, DataHandler handler,
+    private ValueDataType(CastDataProvider provider, CompareMode compareMode, Mode mode, DataHandler handler,
             int[] sortTypes) {
+        this.provider = provider;
         this.compareMode = compareMode;
         this.mode = mode;
         this.handler = handler;
@@ -179,7 +186,7 @@ public class ValueDataType implements DataType {
             return SortOrder.compareNull(aNull, sortType);
         }
 
-        int comp = a.compareTo(b, mode, compareMode);
+        int comp = a.compareTo(b, provider, compareMode);
 
         if ((sortType & SortOrder.DESCENDING) != 0) {
             comp = -comp;
@@ -300,11 +307,20 @@ public class ValueDataType implements DataType {
         case Value.TIME: {
             ValueTime t = (ValueTime) v;
             long nanos = t.getNanos();
-            long millis = nanos / 1000000;
-            nanos -= millis * 1000000;
+            long millis = nanos / 1_000_000;
+            nanos -= millis * 1_000_000;
             buff.put(TIME).
                 putVarLong(millis).
-                putVarLong(nanos);
+                putVarInt((int) nanos);
+            break;
+        }
+        case Value.TIME_TZ: {
+            ValueTimeTimeZone t = (ValueTimeTimeZone) v;
+            long nanosOfDay = t.getNanos();
+            buff.put((byte) TIME_TZ).
+                putVarInt((int) (nanosOfDay / DateTimeUtils.NANOS_PER_SECOND)).
+                putVarInt((int) (nanosOfDay % DateTimeUtils.NANOS_PER_SECOND));
+            writeTimeZone(buff, t.getTimeZoneOffsetSeconds());
             break;
         }
         case Value.DATE: {
@@ -316,25 +332,34 @@ public class ValueDataType implements DataType {
             ValueTimestamp ts = (ValueTimestamp) v;
             long dateValue = ts.getDateValue();
             long nanos = ts.getTimeNanos();
-            long millis = nanos / 1000000;
-            nanos -= millis * 1000000;
+            long millis = nanos / 1_000_000;
+            nanos -= millis * 1_000_000;
             buff.put(TIMESTAMP).
                 putVarLong(dateValue).
                 putVarLong(millis).
-                putVarLong(nanos);
+                putVarInt((int) nanos);
             break;
         }
         case Value.TIMESTAMP_TZ: {
             ValueTimestampTimeZone ts = (ValueTimestampTimeZone) v;
             long dateValue = ts.getDateValue();
             long nanos = ts.getTimeNanos();
-            long millis = nanos / 1000000;
-            nanos -= millis * 1000000;
-            buff.put(TIMESTAMP_TZ).
-                putVarLong(dateValue).
-                putVarLong(millis).
-                putVarLong(nanos).
-                putVarInt(ts.getTimeZoneOffsetMins());
+            long millis = nanos / 1_000_000;
+            nanos -= millis * 1_000_000;
+            int timeZoneOffset = ts.getTimeZoneOffsetSeconds();
+            if (timeZoneOffset % 60 == 0) {
+                buff.put(TIMESTAMP_TZ).
+                    putVarLong(dateValue).
+                    putVarLong(millis).
+                    putVarInt((int) nanos).
+                    putVarInt(timeZoneOffset / 60);
+            } else {
+                buff.put((byte) TIMESTAMP_TZ_2).
+                    putVarLong(dateValue).
+                    putVarLong(millis).
+                    putVarInt((int) nanos);
+                writeTimeZone(buff, timeZoneOffset);
+            }
             break;
         }
         case Value.JAVA_OBJECT: {
@@ -528,6 +553,19 @@ public class ValueDataType implements DataType {
         buff.putVarInt(len).putStringData(s, len);
     }
 
+    private static void writeTimeZone(WriteBuffer buff, int timeZoneOffset) {
+        // Valid JSR-310 offsets are -64,800..64,800
+        // Use 1 byte for common time zones (including +8:45 etc.)
+        if (timeZoneOffset % 900 == 0) {
+            // -72..72
+            buff.put((byte) (timeZoneOffset / 900));
+        } else if (timeZoneOffset > 0) {
+            buff.put(Byte.MAX_VALUE).putVarInt(timeZoneOffset);
+        } else {
+            buff.put(Byte.MIN_VALUE).putVarInt(-timeZoneOffset);
+        }
+    }
+
     /**
      * Read a value.
      *
@@ -579,18 +617,27 @@ public class ValueDataType implements DataType {
             return ValueDate.fromDateValue(readVarLong(buff));
         }
         case TIME: {
-            long nanos = readVarLong(buff) * 1000000 + readVarLong(buff);
+            long nanos = readVarLong(buff) * 1_000_000 + readVarInt(buff);
             return ValueTime.fromNanos(nanos);
         }
+        case TIME_TZ:
+            return ValueTimeTimeZone.fromNanos(readVarInt(buff) * DateTimeUtils.NANOS_PER_SECOND + readVarInt(buff),
+                    readTimeZone(buff));
         case TIMESTAMP: {
             long dateValue = readVarLong(buff);
-            long nanos = readVarLong(buff) * 1000000 + readVarLong(buff);
+            long nanos = readVarLong(buff) * 1_000_000 + readVarInt(buff);
             return ValueTimestamp.fromDateValueAndNanos(dateValue, nanos);
         }
         case TIMESTAMP_TZ: {
             long dateValue = readVarLong(buff);
-            long nanos = readVarLong(buff) * 1000000 + readVarLong(buff);
-            short tz = (short) readVarInt(buff);
+            long nanos = readVarLong(buff) * 1_000_000 + readVarInt(buff);
+            int tz = readVarInt(buff) * 60;
+            return ValueTimestampTimeZone.fromDateValueAndNanos(dateValue, nanos, tz);
+        }
+        case TIMESTAMP_TZ_2: {
+            long dateValue = readVarLong(buff);
+            long nanos = readVarLong(buff) * 1_000_000 + readVarInt(buff);
+            int tz = readTimeZone(buff);
             return ValueTimestampTimeZone.fromDateValueAndNanos(dateValue, nanos, tz);
         }
         case BYTES: {
@@ -717,6 +764,17 @@ public class ValueDataType implements DataType {
                 return ValueString.get(readString(buff, type - STRING_0_31));
             }
             throw DbException.get(ErrorCode.FILE_CORRUPTED_1, "type: " + type);
+        }
+    }
+
+    private static int readTimeZone(ByteBuffer buff) {
+        byte b = buff.get();
+        if (b == Byte.MAX_VALUE) {
+            return readVarInt(buff);
+        } else if (b == Byte.MIN_VALUE) {
+            return -readVarInt(buff);
+        } else {
+            return b * 900;
         }
     }
 

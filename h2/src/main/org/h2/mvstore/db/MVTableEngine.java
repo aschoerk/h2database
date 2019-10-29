@@ -6,7 +6,6 @@
 package org.h2.mvstore.db;
 
 import java.io.InputStream;
-import java.lang.Thread.UncaughtExceptionHandler;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -86,14 +85,7 @@ public class MVTableEngine implements TableEngine {
                 // use a larger page split size to improve the compression ratio
                 builder.pageSplitSize(64 * 1024);
             }
-            builder.backgroundExceptionHandler(new UncaughtExceptionHandler() {
-
-                @Override
-                public void uncaughtException(Thread t, Throwable e) {
-                    db.setBackgroundException(DbException.convert(e));
-                }
-
-            });
+            builder.backgroundExceptionHandler((t, e) -> db.setBackgroundException(DbException.convert(e)));
             // always start without background thread first, and if necessary,
             // it will be set up later, after db has been fully started,
             // otherwise background thread would compete for store lock
@@ -192,7 +184,11 @@ public class MVTableEngine implements TableEngine {
          */
         DbException convertIllegalStateException(IllegalStateException e) {
             int errorCode = DataUtils.getErrorCode(e.getMessage());
-            if (errorCode == DataUtils.ERROR_FILE_CORRUPT) {
+            if (errorCode == DataUtils.ERROR_CLOSED) {
+                throw DbException.get(
+                        ErrorCode.DATABASE_IS_CLOSED,
+                        e, fileName);
+            } else if (errorCode == DataUtils.ERROR_FILE_CORRUPT) {
                 if (encrypted) {
                     throw DbException.get(
                             ErrorCode.FILE_ENCRYPTION_ERROR_1,
@@ -206,6 +202,10 @@ public class MVTableEngine implements TableEngine {
                 throw DbException.get(
                         ErrorCode.IO_EXCEPTION_1,
                         e, fileName);
+            } else if (errorCode == DataUtils.ERROR_TRANSACTION_ILLEGAL_STATE) {
+                throw DbException.get(
+                        ErrorCode.GENERAL_ERROR_1,
+                        e, e.getMessage());
             } else if (errorCode == DataUtils.ERROR_INTERNAL) {
                 throw DbException.get(
                         ErrorCode.GENERAL_ERROR_1,

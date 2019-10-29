@@ -5,13 +5,19 @@
  */
 package org.h2.mvstore.tx;
 
+import java.util.BitSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import org.h2.engine.IsolationLevel;
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.h2.mvstore.RootReference;
 import org.h2.mvstore.type.DataType;
 import org.h2.value.VersionedValue;
-import java.util.Iterator;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A transaction.
@@ -126,7 +132,7 @@ public class Transaction {
     /**
      * How long to wait for blocking transaction to commit or rollback.
      */
-    final int timeoutMillis;
+    int timeoutMillis;
 
     /**
      * Identification of the owner of this transaction,
@@ -154,6 +160,21 @@ public class Transaction {
      */
     private volatile boolean notificationRequested;
 
+    /**
+     * RootReferences for undo log snapshots
+     */
+    private RootReference[] undoLogRootReferences;
+
+    /**
+     * Map of transactional maps for this transaction
+     */
+    private final Map<Integer, TransactionMap<?,?>> transactionMaps = new HashMap<>();
+
+    /**
+     * The current isolation level.
+     */
+    IsolationLevel isolationLevel = IsolationLevel.READ_COMMITTED;
+
 
     Transaction(TransactionStore store, int transactionId, long sequenceNum, int status,
                 String name, long logId, int timeoutMillis, int ownerId,
@@ -163,7 +184,7 @@ public class Transaction {
         this.sequenceNum = sequenceNum;
         this.statusAndLogId = new AtomicLong(composeState(status, logId, false));
         this.name = name;
-        this.timeoutMillis = timeoutMillis;
+        setTimeoutMillis(timeoutMillis);
         this.ownerId = ownerId;
         this.listener = listener;
     }
@@ -178,6 +199,31 @@ public class Transaction {
 
     public int getStatus() {
         return getStatus(statusAndLogId.get());
+    }
+
+    /**
+     * Create a snapshot for the given map id.
+     *
+     * @param mapId the map id
+     * @return the root reference
+     */
+    Snapshot createSnapshot(int mapId) {
+        // The purpose of the following loop is to get a coherent picture
+        // of a state of two independent volatile / atomic variables,
+        // which they had at some recent moment in time.
+        // In order to get such a "snapshot", we wait for a moment of silence,
+        // when neither of the variables concurrently changes it's value.
+        BitSet committingTransactions;
+        RootReference root;
+        do {
+            committingTransactions = store.committingTransactions.get();
+            root = store.openMap(mapId).flushAndGetRoot();
+        } while (committingTransactions != store.committingTransactions.get());
+        return new Snapshot(root, committingTransactions);
+    }
+
+    RootReference[] getUndoLogRootReferences() {
+        return undoLogRootReferences;
     }
 
     /**
@@ -265,19 +311,96 @@ public class Transaction {
     }
 
     /**
-     * Mark an entry into a new SQL statement execution within this transaction.
+     * Returns whether statement dependencies are currently set.
+     *
+     * @return whether statement dependencies are currently set
      */
-    public void markStatementStart() {
+    public boolean hasStatementDependencies() {
+        return !transactionMaps.isEmpty();
+    }
+
+    /**
+     * Sets the new isolation level. May be called only after creation of the
+     * transaction.
+     *
+     * @param isolationLevel the new isolation level
+     */
+    public void setIsolationLevel(IsolationLevel isolationLevel) {
+        this.isolationLevel = isolationLevel;
+    }
+
+    /**
+     * Returns the isolation level of this transaction.
+     *
+     * @return the isolation level of this transaction
+     */
+    public IsolationLevel getIsolationLevel() {
+        return isolationLevel;
+    }
+
+    /**
+     * Mark an entry into a new SQL statement execution within this transaction.
+     *
+     * @param maps
+     *            set of maps used by transaction or statement is about to be executed
+     */
+    @SuppressWarnings("unchecked")
+    public void markStatementStart(HashSet<MVMap<?, ?>> maps) {
         markStatementEnd();
-        txCounter = store.store.registerVersionUsage();
+        if (txCounter == null) {
+            txCounter = store.store.registerVersionUsage();
+        }
+
+        if (maps != null && !maps.isEmpty()) {
+            // The purpose of the following loop is to get a coherent picture
+            // In order to get such a "snapshot", we wait for a moment of silence,
+            // when no new transaction were committed / closed.
+            BitSet committingTransactions;
+            do {
+                committingTransactions = store.committingTransactions.get();
+                for (MVMap<?, ?> map : maps) {
+                    TransactionMap<?, Object> txMap = openMap((MVMap<?, VersionedValue>) map);
+                    txMap.setStatementSnapshot(new Snapshot(map.flushAndGetRoot(), committingTransactions));
+                }
+                if (isolationLevel == IsolationLevel.READ_COMMITTED) {
+                    undoLogRootReferences = store.collectUndoLogRootReferences();
+                }
+            } while (committingTransactions != store.committingTransactions.get());
+            // Now we have a snapshot, where each map RootReference point to state of the map,
+            // undoLogRootReferences captures the state of undo logs
+            // and committingTransactions mask tells us which of seemingly uncommitted changes
+            // should be considered as committed.
+            // Subsequent processing uses this snapshot info only.
+            for (MVMap<?, ?> map : maps) {
+                TransactionMap<?, Object> txMap = openMap((MVMap<?, VersionedValue>) map);
+                txMap.promoteSnapshot();
+            }
+        }
     }
 
     /**
      * Mark an exit from SQL statement execution within this transaction.
      */
     public void markStatementEnd() {
+        if (isolationLevel.allowNonRepeatableRead()) {
+            releaseSnapshot();
+        }
+        for (TransactionMap<?, ?> transactionMap : transactionMaps.values()) {
+            transactionMap.setStatementSnapshot(null);
+        }
+    }
+
+    private void markTransactionEnd() {
+        if (!isolationLevel.allowNonRepeatableRead()) {
+            releaseSnapshot();
+        }
+    }
+
+    private void releaseSnapshot() {
+        transactionMaps.clear();
+        undoLogRootReferences = null;
         MVStore.TxCounter counter = txCounter;
-        if(counter != null) {
+        if (counter != null) {
             txCounter = null;
             store.store.deregisterVersionUsage(counter);
         }
@@ -362,7 +485,14 @@ public class Transaction {
      */
     public <K, V> TransactionMap<K, V> openMap(MVMap<K, VersionedValue> map) {
         checkNotClosed();
-        return new TransactionMap<>(this, map);
+        int id = map.getId();
+        @SuppressWarnings("unchecked")
+        TransactionMap<K,V> transactionMap = (TransactionMap<K, V>)transactionMaps.get(id);
+        if (transactionMap == null) {
+            transactionMap = new TransactionMap<>(this, map);
+            transactionMaps.put(id, transactionMap);
+        }
+        return transactionMap;
     }
 
     /**
@@ -379,12 +509,14 @@ public class Transaction {
      */
     public void commit() {
         assert store.openTransactions.get().get(transactionId);
+        markTransactionEnd();
         Throwable ex = null;
         boolean hasChanges = false;
+        int previousStatus = STATUS_OPEN;
         try {
             long state = setStatus(STATUS_COMMITTED);
             hasChanges = hasChanges(state);
-            int previousStatus = getStatus(state);
+            previousStatus = getStatus(state);
             if (hasChanges) {
                 store.commit(this, previousStatus == STATUS_COMMITTED);
             }
@@ -392,13 +524,15 @@ public class Transaction {
             ex = e;
             throw e;
         } finally {
-            try {
-                store.endTransaction(this, hasChanges);
-            } catch (Throwable e) {
-                if (ex == null) {
-                    throw e;
-                } else {
-                    ex.addSuppressed(e);
+            if (isActive(previousStatus)) {
+                try {
+                    store.endTransaction(this, hasChanges);
+                } catch (Throwable e) {
+                    if (ex == null) {
+                        throw e;
+                    } else {
+                        ex.addSuppressed(e);
+                    }
                 }
             }
         }
@@ -439,19 +573,27 @@ public class Transaction {
      * Roll the transaction back. Afterwards, this transaction is closed.
      */
     public void rollback() {
+        markTransactionEnd();
         Throwable ex = null;
+        int status = STATUS_OPEN;
         try {
             long lastState = setStatus(STATUS_ROLLED_BACK);
+            status = getStatus(lastState);
             long logId = getLogId(lastState);
             if (logId > 0) {
                 store.rollbackTo(this, logId, 0);
             }
         } catch (Throwable e) {
-            ex = e;
-            throw e;
+            status = getStatus();
+            if (isActive(status)) {
+                ex = e;
+                throw e;
+            }
         } finally {
             try {
-                store.endTransaction(this, true);
+                if (isActive(status)) {
+                    store.endTransaction(this, true);
+                }
             } catch (Throwable e) {
                 if (ex == null) {
                     throw e;
@@ -460,6 +602,12 @@ public class Transaction {
                 }
             }
         }
+    }
+
+    private static boolean isActive(int status) {
+        return status != STATUS_CLOSED
+            && status != STATUS_COMMITTED
+            && status != STATUS_ROLLED_BACK;
     }
 
     /**
@@ -473,6 +621,15 @@ public class Transaction {
      */
     public Iterator<TransactionStore.Change> getChanges(long savepointId) {
         return store.getChanges(this, getLogId(), savepointId);
+    }
+
+    /**
+     * Sets the new lock timeout.
+     *
+     * @param timeoutMillis the new lock timeout in milliseconds
+     */
+    public void setTimeoutMillis(int timeoutMillis) {
+        this.timeoutMillis = timeoutMillis > 0 ? timeoutMillis : store.timeoutMillis;
     }
 
     private long getLogId() {
@@ -504,6 +661,7 @@ public class Transaction {
      * Transition this transaction into a closed state.
      */
     void closeIt() {
+        transactionMaps.clear();
         long lastState = setStatus(STATUS_CLOSED);
         store.store.deregisterVersionUsage(txCounter);
         if((hasChanges(lastState) || hasRollback(lastState)) && notificationRequested) {

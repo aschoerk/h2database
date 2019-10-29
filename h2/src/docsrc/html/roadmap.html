@@ -163,7 +163,6 @@ See also <a href="build.html#providing_patches">Providing Patches</a>.
 </li><li>Support dynamic linked schema (automatically adding/updating/removing tables)
 </li><li>Clustering: adding a node should be very fast and without interrupting clients (very short lock)
 </li><li>Compatibility: # is the start of a single line comment (MySQL) but date quote (Access). Mode specific
-</li><li>Run benchmarks with Android, Java 7, java -server
 </li><li>Optimizations: faster hash function for strings.
 </li><li>DatabaseEventListener: callback for all operations (including expected time, RUNSCRIPT) and cancel functionality
 </li><li>Benchmark: add a graph to show how databases scale (performance/database size)
@@ -461,7 +460,6 @@ See also <a href="build.html#providing_patches">Providing Patches</a>.
 </li><li>Compatibility for ARRAY data type (Oracle: VARRAY(n) of VARCHAR(m); HSQLDB: VARCHAR(n) ARRAY; Postgres: VARCHAR(n)[]).
 </li><li>PostgreSQL compatible array literal syntax: ARRAY[['a', 'b'], ['c', 'd']]
 </li><li>PostgreSQL compatibility: UPDATE with FROM.
-</li><li>Issue 297: Oracle compatibility for "at time zone".
 </li><li>IBM DB2 compatibility: IDENTITY_VAL_LOCAL().
 </li><li>Support SQL/XML data type.
 </li><li>Support concurrent opening of databases.

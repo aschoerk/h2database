@@ -8,7 +8,6 @@ package org.h2.command.dml;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -49,7 +48,6 @@ import org.h2.table.IndexColumn;
 import org.h2.table.JoinBatch;
 import org.h2.table.Table;
 import org.h2.table.TableFilter;
-import org.h2.table.TableFilter.TableFilterVisitor;
 import org.h2.table.TableType;
 import org.h2.table.TableView;
 import org.h2.util.ColumnNamer;
@@ -330,17 +328,7 @@ public class Select extends Query {
      * @return the row
      */
     Value[] createGroupSortedRow(Value[] keyValues, int columnCount) {
-        Value[] row = new Value[columnCount];
-        for (int j = 0; groupIndex != null && j < groupIndex.length; j++) {
-            row[groupIndex[j]] = keyValues[j];
-        }
-        for (int j = 0; j < columnCount; j++) {
-            if (groupByExpression != null && groupByExpression[j]) {
-                continue;
-            }
-            Expression expr = expressions.get(j);
-            row[j] = expr.getValue(session);
-        }
+        Value[] row = constructGroupResultRow(keyValues, columnCount);
         if (isHavingNullOrFalse(row)) {
             return null;
         }
@@ -512,13 +500,10 @@ public class Select extends Query {
 
     void setGroupData(final SelectGroups groupData) {
         this.groupData = groupData;
-        topTableFilter.visit(new TableFilterVisitor() {
-            @Override
-            public void accept(TableFilter f) {
-                Select s = f.getSelect();
-                if (s != null) {
-                    s.groupData = groupData;
-                }
+        topTableFilter.visit(f -> {
+            Select s = f.getSelect();
+            if (s != null) {
+                s.groupData = groupData;
             }
         });
     }
@@ -560,25 +545,7 @@ public class Select extends Query {
     private void processGroupResult(int columnCount, LocalResult result, long offset, boolean quickOffset,
             boolean withHaving) {
         for (ValueRow currentGroupsKey; (currentGroupsKey = groupData.next()) != null;) {
-            Value[] keyValues = currentGroupsKey.getList();
-            Value[] row = new Value[columnCount];
-            for (int j = 0; groupIndex != null && j < groupIndex.length; j++) {
-                row[groupIndex[j]] = keyValues[j];
-            }
-            for (int j = 0; j < columnCount; j++) {
-                if (groupByExpression != null && groupByExpression[j]) {
-                    continue;
-                }
-                if (groupByCopies != null) {
-                    int original = groupByCopies[j];
-                    if (original >= 0) {
-                        row[j] = row[original];
-                        continue;
-                    }
-                }
-                Expression expr = expressions.get(j);
-                row[j] = expr.getValue(session);
-            }
+            Value[] row = constructGroupResultRow(currentGroupsKey.getList(), columnCount);
             if (withHaving && isHavingNullOrFalse(row)) {
                 continue;
             }
@@ -591,6 +558,29 @@ public class Select extends Query {
             }
             result.addRow(rowForResult(row, columnCount));
         }
+    }
+
+    private Value[] constructGroupResultRow(Value[] keyValues, int columnCount) {
+        Value[] row = new Value[columnCount];
+        if (groupIndex != null) {
+            for (int i = 0, l = groupIndex.length; i < l; i++) {
+                row[groupIndex[i]] = keyValues[i];
+            }
+        }
+        for (int i = 0; i < columnCount; i++) {
+            if (groupByExpression != null && groupByExpression[i]) {
+                continue;
+            }
+            if (groupByCopies != null) {
+                int original = groupByCopies[i];
+                if (original >= 0) {
+                    row[i] = row[original];
+                    continue;
+                }
+            }
+            row[i] = expressions.get(i).getValue(session);
+        }
+        return row;
     }
 
     /**
@@ -876,14 +866,11 @@ public class Select extends Query {
 
     private void disableLazyForJoinSubqueries(final TableFilter top) {
         if (session.isLazyQueryExecution()) {
-            top.visit(new TableFilter.TableFilterVisitor() {
-                @Override
-                public void accept(TableFilter f) {
-                    if (f != top && f.getTable().getTableType() == TableType.VIEW) {
-                        ViewIndex idx = (ViewIndex) f.getIndex();
-                        if (idx != null && idx.getQuery() != null) {
-                            idx.getQuery().setNeverLazy(true);
-                        }
+            top.visit(f -> {
+                if (f != top && f.getTable().getTableType() == TableType.VIEW) {
+                    ViewIndex idx = (ViewIndex) f.getIndex();
+                    if (idx != null && idx.getQuery() != null) {
+                        idx.getQuery().setNeverLazy(true);
                     }
                 }
             });
@@ -1014,7 +1001,7 @@ public class Select extends Query {
         if (checkInit) {
             DbException.throwInternalError();
         }
-        Collections.sort(filters, TableFilter.ORDER_IN_FROM_COMPARATOR);
+        filters.sort(TableFilter.ORDER_IN_FROM_COMPARATOR);
         expandColumnList();
         visibleColumnCount = expressions.size();
         ArrayList<String> expressionSQL;
@@ -1459,30 +1446,20 @@ public class Select extends Query {
                     builder.append(',');
                 }
                 builder.append('\n');
-                StringUtils.indent(builder, exprList[i].getSQL( alwaysQuote), 4, false);
+                StringUtils.indent(builder, exprList[i].getSQL(alwaysQuote), 4, false);
             }
-            builder.append("\nFROM ");
             TableFilter filter = topTableFilter;
-            if (filter != null) {
-                int i = 0;
-                do {
-                    if (i > 0) {
-                        builder.append('\n');
+            if (filter == null) {
+                int count = topFilters.size();
+                if (count != 1 || !topFilters.get(0).isNoFromClauseFilter()) {
+                    builder.append("\nFROM ");
+                    boolean isJoin = false;
+                    for (int i = 0; i < count; i++) {
+                        isJoin = getPlanFromFilter(builder, alwaysQuote, topFilters.get(i), isJoin);
                     }
-                    filter.getPlanSQL(builder, i++ > 0, alwaysQuote);
-                    filter = filter.getJoin();
-                } while (filter != null);
-            } else {
-                int i = 0;
-                for (TableFilter f : topFilters) {
-                    do {
-                        if (i > 0) {
-                            builder.append('\n');
-                        }
-                        f.getPlanSQL(builder, i++ > 0, alwaysQuote);
-                        f = f.getJoin();
-                    } while (f != null);
                 }
+            } else if (!filter.isNoFromClauseFilter()) {
+                getPlanFromFilter(builder.append("\nFROM "), alwaysQuote, filter, false);
             }
             if (condition != null) {
                 builder.append("\nWHERE ");
@@ -1504,6 +1481,13 @@ public class Select extends Query {
                     }
                     group.get(i).getUnenclosedSQL(builder, alwaysQuote);
                 }
+            } else emptyGroupingSet: if (isGroupQuery && having == null && havingIndex < 0) {
+                for (int i = 0; i < visibleColumnCount; i++) {
+                    if (containsAggregate(exprList[i])) {
+                        break emptyGroupingSet;
+                    }
+                }
+                builder.append("\nGROUP BY ()");
             }
             getFilterSQL(builder, "\nHAVING ", exprList, having, havingIndex);
             getFilterSQL(builder, "\nQUALIFY ", exprList, qualify, qualifyIndex);
@@ -1534,6 +1518,18 @@ public class Select extends Query {
         return builder.toString();
     }
 
+    private static boolean getPlanFromFilter(StringBuilder builder, boolean alwaysQuote, TableFilter f,
+            boolean isJoin) {
+        do {
+            if (isJoin) {
+                builder.append('\n');
+            }
+            f.getPlanSQL(builder, isJoin, alwaysQuote);
+            isJoin = true;
+        } while ((f = f.getJoin()) != null);
+        return isJoin;
+    }
+
     private static void getFilterSQL(StringBuilder builder, String sql, Expression[] exprList, Expression condition,
             int conditionIndex) {
         if (condition != null) {
@@ -1543,6 +1539,20 @@ public class Select extends Query {
             builder.append(sql);
             exprList[conditionIndex].getUnenclosedSQL(builder, true);
         }
+    }
+
+    private static boolean containsAggregate(Expression expression) {
+        if (expression instanceof DataAnalysisOperation) {
+            if (((DataAnalysisOperation) expression).isAggregate()) {
+                return true;
+            }
+        }
+        for (int i = 0, l = expression.getSubexpressionCount(); i < l; i++) {
+            if (containsAggregate(expression.getSubexpression(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void setHaving(Expression having) {

@@ -232,49 +232,78 @@ See the <a href="commands.html">Commands</a> for details.
 Transaction isolation is provided for all data manipulation language (DML) statements.
 </p>
 <p>
-Please note that with default MVStore storage engine table level locking is not used.
-Instead, rows are locked for update, and read committed is used in all cases
-except for explicitly selected read uncommitted transaction isolation level.
-</p>
-<p>
-This database supports the following transaction isolation levels:
+The default MVStore engine supports read uncommitted, read committed, repeatable read, snapshot,
+and serializable (partially, see below) isolation levels:
 </p>
 <ul>
-<li><b>Read Committed</b><br />
+<li><b>Read uncommitted</b><br />
+    Dirty reads, non-repeatable reads, and phantom reads are possible.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ UNCOMMITTED</code>
+</li>
+<li><b>Read committed</b><br />
     This is the default level.
-    Read locks are released immediately after executing the statement, but write locks are kept until the transaction commits.
-    Higher concurrency is possible when using this level.<br />
-    To enable, execute the SQL statement <code>SET LOCK_MODE 3</code><br />
-    or append <code>;LOCK_MODE=3</code> to the database URL: <code>jdbc:h2:~/test;LOCK_MODE=3</code>
-</li><li>
-<b>Serializable</b><br />
-    Both read locks and write locks are kept until the transaction commits.
-    To enable, execute the SQL statement <code>SET LOCK_MODE 1</code><br />
-    or append <code>;LOCK_MODE=1</code> to the database URL: <code>jdbc:h2:~/test;LOCK_MODE=1</code>
-</li><li><b>Read Uncommitted</b><br />
-    This level means that transaction isolation is disabled.
-    This level is not supported by PageStore engine if multi-threaded mode is enabled.
-    <br />
-    To enable, execute the SQL statement <code>SET LOCK_MODE 0</code><br />
-    or append <code>;LOCK_MODE=0</code> to the database URL: <code>jdbc:h2:~/test;LOCK_MODE=0</code>
+    Dirty reads aren't possible; non-repeatable reads and phantom reads are possible.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED</code>
+</li>
+<li><b>Repeatable read</b><br />
+    Dirty reads and non-repeatable reads aren't possible, phantom reads are possible.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ</code>
+</li>
+<li><b>Snapshot</b><br />
+    Dirty reads, non-repeatable reads, and phantom reads aren't possible.
+    This isolation level is very expensive in databases with many tables.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SNAPSHOT</code>
+</li>
+<li><b>Serializable</b><br />
+    Dirty reads, non-repeatable reads, and phantom reads aren't possible.
+    Note that this isolation level in H2 currently doesn't ensure equivalence of concurrent and serializable execution
+    of transactions that perform write operations.
+    This isolation level is very expensive in databases with many tables.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE</code>
 </li>
 </ul>
 <p>
-When using the isolation level 'serializable', dirty reads, non-repeatable reads, and phantom reads are prohibited.
+The PageStore engine supports read uncommitted, read committed, and serializable isolation levels:
 </p>
 <ul>
-<li><b>Dirty Reads</b><br />
+<li><b>Read uncommitted</b><br />
+    This level means that transaction isolation is disabled.
+    This level is not supported by PageStore engine if multi-threaded mode is enabled.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ UNCOMMITTED</code>
+</li>
+<li><b>Read committed</b><br />
+    This is the default level.
+    Read locks are released immediately after executing the statement, but write locks are kept until the transaction commits.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED</code>
+</li>
+<li><b>Serializable</b><br />
+    Both read locks and write locks are kept until the transaction commits.
+    To enable, execute the SQL statement
+    <code>SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE</code>
+</li>
+</ul>
+<p>If repeatable read isolation level is requested when using a PageStore engine it is replaced
+with serializable isolation level.</p>
+<ul>
+<li><b>Dirty reads</b><br />
     Means a connection can read uncommitted changes made by another connection.<br />
-    Possible with: read uncommitted
-</li><li><b>Non-Repeatable Reads</b><br />
+    Possible with: read uncommitted.
+</li><li><b>Non-repeatable reads</b><br />
     A connection reads a row, another connection changes a row and commits,
     and the first connection re-reads the same row and gets the new result.<br />
-    Possible with: read uncommitted, read committed
-</li><li><b>Phantom Reads</b><br />
+    Possible with: read uncommitted, read committed.
+</li><li><b>Phantom reads</b><br />
     A connection reads a set of rows using a condition, another connection
     inserts a row that falls in this condition and commits, then the first connection
     re-reads using the same condition and gets the new row.<br />
-    Possible with: read uncommitted, read committed
+    Possible with: read uncommitted, read committed, repeatable read.
 </li>
 </ul>
 
@@ -484,6 +513,7 @@ The following tokens are keywords in H2:
 <tr>
 <th>Keyword</th>
 <th>H2</th>
+<th>SQL:&#8203;2016</th>
 <th>SQL:&#8203;2011</th>
 <th>SQL:&#8203;2008</th>
 <th>SQL:&#8203;2003</th>
@@ -493,163 +523,177 @@ The following tokens are keywords in H2:
 </thead>
 <tbody>
 <tr><td>ALL</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>AND</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>ARRAY</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
 <tr><td>AS</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>BETWEEN</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>NR</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>NR</td><td>+</td></tr>
 <tr><td>BOTH</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>CASE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>CHECK</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>CONSTRAINT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>CROSS</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<tr><td>CURRENT_CATALOG</td>
+<td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td><td></td></tr>
 <tr><td>CURRENT_DATE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>CURRENT_SCHEMA</td>
-<td>+</td><td>+</td><td>+</td><td></td><td></td><td></td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td><td></td></tr>
 <tr><td>CURRENT_TIME</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>CURRENT_TIMESTAMP</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>CURRENT_USER</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<tr><td>DAY</td>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>DISTINCT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>EXCEPT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>EXISTS</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>NR</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>NR</td><td>+</td></tr>
 <tr><td>FALSE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>FETCH</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>FILTER</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
 <tr><td>FOR</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>FOREIGN</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>FROM</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>FULL</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>GROUP</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>GROUPS</td>
-<td>CS</td><td>+</td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td>+</td><td>+</td><td></td><td></td><td></td><td></td></tr>
 <tr><td>HAVING</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<tr><td>HOUR</td>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>IF</td>
-<td>+</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>+</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>ILIKE</td>
-<td>CS</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>IN</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>INNER</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>INTERSECT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>INTERSECTS</td>
-<td>+</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>+</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>INTERVAL</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>IS</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>JOIN</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>LEADING</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>LEFT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>LIKE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>LIMIT</td>
-<td>+</td><td></td><td></td><td></td><td>+</td><td></td></tr>
+<td>+</td><td></td><td></td><td></td><td></td><td>+</td><td></td></tr>
 <tr><td>LOCALTIME</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
 <tr><td>LOCALTIMESTAMP</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
 <tr><td>MINUS</td>
-<td>+</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>+</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>MINUTE</td>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<tr><td>MONTH</td>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>NATURAL</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>NOT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>NULL</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>OFFSET</td>
-<td>+</td><td>+</td><td>+</td><td></td><td></td><td></td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td><td></td></tr>
 <tr><td>ON</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>OR</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>ORDER</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>OVER</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
 <tr><td>PARTITION</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
 <tr><td>PRIMARY</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>QUALIFY</td>
-<td>+</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>+</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>RANGE</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
 <tr><td>REGEXP</td>
-<td>CS</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>RIGHT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>ROW</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td></tr>
 <tr><td>_ROWID_</td>
-<td>+</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>+</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>ROWNUM</td>
-<td>+</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>+</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>ROWS</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<tr><td>SECOND</td>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>SELECT</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>SYSDATE</td>
-<td>CS</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>SYSTIME</td>
-<td>CS</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>SYSTIMESTAMP</td>
-<td>CS</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>TABLE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>TODAY</td>
-<td>CS</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>TOP</td>
-<td>CS</td><td></td><td></td><td></td><td></td><td></td></tr>
+<td>CS</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
 <tr><td>TRAILING</td>
-<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>CS</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>TRUE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>UNION</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>UNIQUE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>UNKNOWN</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>USING</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>VALUES</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>WHERE</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 <tr><td>WINDOW</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td></td><td></td></tr>
 <tr><td>WITH</td>
-<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
+<tr><td>YEAR</td>
+<td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr>
 </tbody>
 </table>
 <p>
@@ -941,7 +985,8 @@ explicitly disabled.
 <p>
 For H2, as with most other database systems, the default isolation level is 'read committed'.
 This provides better performance, but also means that transactions are not completely isolated.
-H2 supports the transaction isolation levels 'serializable', 'read committed', and 'read uncommitted'.
+H2 supports the transaction isolation levels 'read uncommitted', 'read committed', 'repeatable read',
+and 'serializable'.
 </p>
 
 <h3>Durability</h3>
@@ -1718,7 +1763,7 @@ IPv4 and IPv6 address formats are supported.
 <p>
 This database supports a pluggable file system API.
 The file system implementation is selected using a file name prefix.
-Internally, the interfaces are very similar to the Java 7 NIO2 API, but do not (yet) use or require Java 7.
+Internally, the interfaces are very similar to the Java 7 NIO2 API.
 The following file systems are included:
 </p>
 <ul><li><code>zip:</code>  read-only zip-file based file system. Format: <code>zip:~/zipFileName!/fileName</code>.

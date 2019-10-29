@@ -685,7 +685,7 @@ Another (more dangerous) solution is to set <code>useDatabaseLock</code> to fals
 <p>
 There is a known issue when using the Netbeans SQL Execution Window:
 before executing a query, another query in the form <code>SELECT COUNT(*) FROM &lt;query&gt;</code> is run.
-This is a problem for queries that modify state, such as <code>SELECT SEQ.NEXTVAL</code>.
+This is a problem for queries that modify state, such as <code>SELECT NEXT VALUE FOR SEQ</code>.
 In this case, two sequence values are allocated instead of just one.
 </p>
 
@@ -1302,8 +1302,7 @@ org.h2.fulltext.FullText.searchData(conn, text, limit, offset);
 <h3>Using the Apache Lucene Fulltext Search</h3>
 <p>
 To use the Apache Lucene full text search, you need the Lucene library in the classpath.
-Apache Lucene 5.5.5 or later version up to 8.0.* is required.
-Newer versions may also work, but were not tested.
+Apache Lucene 8.2.0 or binary compatible later version is required.
 How to do that depends on the application; if you use the H2 Console, you can add the Lucene
 jar file to the environment variables <code>H2DRIVERS</code> or
 <code>CLASSPATH</code>.

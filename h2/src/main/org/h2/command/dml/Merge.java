@@ -6,10 +6,12 @@
 package org.h2.command.dml;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import org.h2.api.ErrorCode;
 import org.h2.api.Trigger;
 import org.h2.command.Command;
 import org.h2.command.CommandInterface;
+import org.h2.engine.DbObject;
 import org.h2.engine.Right;
 import org.h2.engine.Session;
 import org.h2.engine.UndoLogRecord;
@@ -24,7 +26,6 @@ import org.h2.result.Row;
 import org.h2.table.Column;
 import org.h2.table.DataChangeDeltaTable.ResultOption;
 import org.h2.table.Table;
-import org.h2.table.TableFilter;
 import org.h2.value.Value;
 
 /**
@@ -38,7 +39,6 @@ public class Merge extends CommandWithValues implements DataChangeStatement {
     private boolean isReplace;
 
     private Table table;
-    private TableFilter tableFilter;
     private Column[] columns;
     private Column[] keys;
     private Query query;
@@ -338,13 +338,10 @@ public class Merge extends CommandWithValues implements DataChangeStatement {
         return true;
     }
 
-    public TableFilter getTableFilter() {
-        return tableFilter;
+    @Override
+    public void collectDependencies(HashSet<DbObject> dependencies) {
+        if (query != null) {
+            query.collectDependencies(dependencies);
+        }
     }
-
-    public void setTableFilter(TableFilter tableFilter) {
-        this.tableFilter = tableFilter;
-        setTable(tableFilter.getTable());
-    }
-
 }

@@ -323,13 +323,13 @@ public class TestValue extends TestDb {
             Value v = useFloat ? (Value) ValueFloat.get((float) d[i])
                     : (Value) ValueDouble.get(d[i]);
             values[i] = v;
-            assertTrue(values[i].compareTypeSafe(values[i], null) == 0);
+            assertTrue(values[i].compareTypeSafe(values[i], null, null) == 0);
             assertTrue(v.equals(v));
             assertEquals(Integer.compare(i, 2), v.getSignum());
         }
         for (int i = 0; i < d.length - 1; i++) {
-            assertTrue(values[i].compareTypeSafe(values[i+1], null) < 0);
-            assertTrue(values[i + 1].compareTypeSafe(values[i], null) > 0);
+            assertTrue(values[i].compareTypeSafe(values[i+1], null, null) < 0);
+            assertTrue(values[i + 1].compareTypeSafe(values[i], null, null) > 0);
             assertFalse(values[i].equals(values[i+1]));
         }
     }
@@ -338,40 +338,40 @@ public class TestValue extends TestDb {
         ValueTimestamp valueTs = ValueTimestamp.parse("2000-01-15 10:20:30.333222111");
         Timestamp ts = Timestamp.valueOf("2000-01-15 10:20:30.333222111");
         assertEquals(ts.toString(), valueTs.getString());
-        assertEquals(ts, valueTs.getTimestamp());
+        assertEquals(ts, valueTs.getTimestamp(null, null));
         Calendar c = Calendar.getInstance(TimeZone.getTimeZone("Europe/Berlin"));
         c.set(2018, 02, 25, 1, 59, 00);
         c.set(Calendar.MILLISECOND, 123);
         long expected = c.getTimeInMillis();
-        ts = ValueTimestamp.parse("2018-03-25 01:59:00.123123123 Europe/Berlin").getTimestamp();
+        ts = ValueTimestamp.parse("2018-03-25 01:59:00.123123123 Europe/Berlin").getTimestamp(null, null);
         assertEquals(expected, ts.getTime());
         assertEquals(123123123, ts.getNanos());
-        ts = ValueTimestamp.parse("2018-03-25 01:59:00.123123123+01").getTimestamp();
+        ts = ValueTimestamp.parse("2018-03-25 01:59:00.123123123+01").getTimestamp(null, null);
         assertEquals(expected, ts.getTime());
         assertEquals(123123123, ts.getNanos());
         expected += 60000; // 1 minute
-        ts = ValueTimestamp.parse("2018-03-25 03:00:00.123123123 Europe/Berlin").getTimestamp();
+        ts = ValueTimestamp.parse("2018-03-25 03:00:00.123123123 Europe/Berlin").getTimestamp(null, null);
         assertEquals(expected, ts.getTime());
         assertEquals(123123123, ts.getNanos());
-        ts = ValueTimestamp.parse("2018-03-25 03:00:00.123123123+02").getTimestamp();
+        ts = ValueTimestamp.parse("2018-03-25 03:00:00.123123123+02").getTimestamp(null, null);
         assertEquals(expected, ts.getTime());
         assertEquals(123123123, ts.getNanos());
     }
 
     private void testArray() {
-        ValueArray src = ValueArray.get(String.class,
+        ValueArray src = ValueArray.get(
                 new Value[] {ValueString.get("1"), ValueString.get("22"), ValueString.get("333")});
         assertEquals(3, src.getType().getPrecision());
         assertSame(src, src.convertPrecision(3));
-        ValueArray exp = ValueArray.get(String.class,
+        ValueArray exp = ValueArray.get(
                 new Value[] {ValueString.get("1"), ValueString.get("22")});
         Value got = src.convertPrecision(2);
         assertEquals(exp, got);
-        assertEquals(String.class, ((ValueArray) got).getComponentType());
-        exp = ValueArray.get(String.class, new Value[0]);
+        assertEquals(Value.STRING, ((ValueArray) got).getComponentType().getValueType());
+        exp = ValueArray.get(TypeInfo.TYPE_STRING, new Value[0]);
         got = src.convertPrecision(0);
         assertEquals(exp, got);
-        assertEquals(String.class, ((ValueArray) got).getComponentType());
+        assertEquals(Value.STRING, ((ValueArray) got).getComponentType().getValueType());
     }
 
     private void testUUID() {
@@ -473,7 +473,7 @@ public class TestValue extends TestDb {
         }
         Value lob1 = createLob(dh, type, bytes1);
         Value lob2 = createLob(dh, type, bytes2);
-        return lob1.compareTypeSafe(lob2, null);
+        return lob1.compareTypeSafe(lob2, null, null);
     }
 
     private static Value createLob(DataHandler dh, int type, byte[] bytes) {

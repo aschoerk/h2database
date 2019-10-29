@@ -778,7 +778,7 @@ public class WebServer implements Service {
         if (databaseUrl.startsWith("jdbc:h2:")) {
             if (!allowSecureCreation || key == null || !key.equals(userKey)) {
                 if (ifExists) {
-                    databaseUrl += ";IFEXISTS=TRUE";
+                    databaseUrl += ";FORBID_CREATION=TRUE";
                 }
             }
         }
@@ -917,7 +917,7 @@ public class WebServer implements Service {
     /**
      * Check the admin password.
      *
-     * @param the password to test
+     * @param password the password to test
      * @return true if admin password not configure, or admin password correct
      */
     boolean checkAdminPassword(String password) {

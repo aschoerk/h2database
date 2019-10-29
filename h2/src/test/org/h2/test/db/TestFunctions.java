@@ -56,7 +56,6 @@ import org.h2.test.TestBase;
 import org.h2.test.TestDb;
 import org.h2.test.ap.TestAnnotationProcessor;
 import org.h2.tools.SimpleResultSet;
-import org.h2.util.DateTimeUtils;
 import org.h2.util.IOUtils;
 import org.h2.util.StringUtils;
 import org.h2.value.Value;
@@ -136,7 +135,7 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         ResultSet rs = stat.executeQuery(query);
         assertTrue(rs.next());
         String version = rs.getString(1);
-        assertEquals(Constants.getVersion(), version);
+        assertEquals(Constants.VERSION, version);
         assertFalse(rs.next());
         rs.close();
         stat.close();
@@ -682,11 +681,6 @@ public class TestFunctions extends TestDb implements AggregateFunction {
             return Types.VARCHAR;
         }
 
-        @Override
-        public void init(Connection conn) {
-            // nothing to do
-        }
-
     }
 
     /**
@@ -709,11 +703,6 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         @Override
         public int getInternalType(int[] inputTypes) throws SQLException {
             return Value.STRING;
-        }
-
-        @Override
-        public void init(Connection conn) {
-            // nothing to do
         }
 
     }
@@ -1178,16 +1167,16 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         stmt.setObject(1, new Integer[] { 1, 2 });
         rs = stmt.executeQuery();
         rs.next();
-        assertEquals(Integer[].class.getName(), rs.getObject(1).getClass()
+        assertEquals(Object[].class.getName(), rs.getObject(1).getClass()
                 .getName());
 
         CallableStatement call = conn.prepareCall("{ ? = call array_test(?) }");
         call.setObject(2, new Integer[] { 2, 1 });
         call.registerOutParameter(1, Types.ARRAY);
         call.execute();
-        assertEquals(Integer[].class.getName(), call.getArray(1).getArray()
+        assertEquals(Object[].class.getName(), call.getArray(1).getArray()
                 .getClass().getName());
-        assertEquals(new Integer[]{2, 1}, (Integer[]) call.getObject(1));
+        assertEquals(new Object[]{2, 1}, (Object[]) call.getObject(1));
 
         stat.execute("drop alias array_test");
 
@@ -1210,7 +1199,7 @@ public class TestFunctions extends TestDb implements AggregateFunction {
     }
 
     private void testToDate(Session session) {
-        GregorianCalendar calendar = DateTimeUtils.createGregorianCalendar();
+        GregorianCalendar calendar = new GregorianCalendar();
         int year = calendar.get(Calendar.YEAR);
         int month = calendar.get(Calendar.MONTH) + 1;
         // Default date in Oracle is the first day of the current month
@@ -1367,7 +1356,7 @@ public class TestFunctions extends TestDb implements AggregateFunction {
                 "(TIMESTAMP '-100-01-15 14:04:02.120')");
 
         assertResult("1979-11-12 08:12:34.56", stat, "SELECT X FROM T");
-        assertResult("-100-01-15 14:04:02.12", stat, "SELECT X FROM U");
+        assertResult("-0100-01-15 14:04:02.12", stat, "SELECT X FROM U");
         String expected = String.format("%tb", timestamp1979).toUpperCase();
         expected = stripTrailingPeriod(expected);
         assertResult("12-" + expected + "-79 08.12.34.560000000 AM", stat,
@@ -1554,6 +1543,17 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         assertResult("7979", stat, "SELECT TO_CHAR(X, 'yyfxyy') FROM T");
         assertThrows(ErrorCode.INVALID_TO_CHAR_FORMAT, stat,
                 "SELECT TO_CHAR(X, 'A') FROM T");
+
+        assertResult("01-1 2000-01 1999-52", stat, "SELECT TO_CHAR(DATE '2000-01-01', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("01-1 2000-01 1999-52", stat, "SELECT TO_CHAR(DATE '2000-01-02', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("01-1 2000-01 2000-01", stat, "SELECT TO_CHAR(DATE '2000-01-03', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("01-1 2000-01 2000-01", stat, "SELECT TO_CHAR(DATE '2000-01-04', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("01-1 2000-01 2000-01", stat, "SELECT TO_CHAR(DATE '2000-01-05', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("01-1 2000-01 2000-01", stat, "SELECT TO_CHAR(DATE '2000-01-06', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("01-1 2000-01 2000-01", stat, "SELECT TO_CHAR(DATE '2000-01-07', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("01-2 2000-02 2000-01", stat, "SELECT TO_CHAR(DATE '2000-01-08', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("02-1 2000-05 2000-05", stat, "SELECT TO_CHAR(DATE '2000-02-01', 'MM-W YYYY-WW IYYY-IW')");
+        assertResult("12-5 2000-53 2000-52", stat, "SELECT TO_CHAR(DATE '2000-12-31', 'MM-W YYYY-WW IYYY-IW')");
 
         // check a bug we had when the month or day of the month is 1 digit
         stat.executeUpdate("TRUNCATE TABLE T");
@@ -2314,11 +2314,6 @@ public class TestFunctions extends TestDb implements AggregateFunction {
             throw new RuntimeException("unexpected data type");
         }
         return Types.DECIMAL;
-    }
-
-    @Override
-    public void init(Connection conn) {
-        // ignore
     }
 
 }

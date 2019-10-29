@@ -13,7 +13,6 @@ import org.h2.command.Parser;
 import org.h2.command.ddl.SequenceOptions;
 import org.h2.engine.Constants;
 import org.h2.engine.Domain;
-import org.h2.engine.Mode;
 import org.h2.engine.Session;
 import org.h2.expression.Expression;
 import org.h2.expression.ExpressionVisitor;
@@ -140,6 +139,12 @@ public class Column {
         this.type = type;
     }
 
+    public Column(String name, TypeInfo type, String originalSQL) {
+        this.name = name;
+        this.type = type;
+        this.originalSQL = originalSQL;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (o == this) {
@@ -176,11 +181,12 @@ public class Column {
      * Convert a value to this column's type without precision and scale checks.
      *
      * @param v the value
+     * @param forComparison if {@code true}, perform cast for comparison operation
      * @return the value
      */
-    public Value convert(Value v) {
+    public Value convert(Value v, boolean forComparison) {
         try {
-            return v.convertTo(type, null, this);
+            return v.convertTo(type, table.getDatabase(), forComparison, this);
         } catch (DbException e) {
             if (e.getErrorCode() == ErrorCode.DATA_CONVERSION_ERROR_1) {
                 e = getDataConversionError(v, e);
@@ -356,7 +362,6 @@ public class Column {
         synchronized (this) {
             localDefaultExpression = defaultExpression;
         }
-        Mode mode = session.getDatabase().getMode();
         boolean addKey = false;
         if (value == null) {
             if (localDefaultExpression == null) {
@@ -376,7 +381,7 @@ public class Column {
             }
         }
         try {
-            value = type.cast(value, mode, false, name);
+            value = type.cast(value, session, false, false, name);
         } catch (DbException e) {
             if (e.getErrorCode() == ErrorCode.DATA_CONVERSION_ERROR_1) {
                 e = getDataConversionError(value, e);
@@ -755,6 +760,9 @@ public class Column {
             }
         }
         if (defaultExpression != null && !defaultExpression.isEverything(visitor)) {
+            return false;
+        }
+        if (onUpdateExpression != null && !onUpdateExpression.isEverything(visitor)) {
             return false;
         }
         if (checkConstraint != null && !checkConstraint.isEverything(visitor)) {

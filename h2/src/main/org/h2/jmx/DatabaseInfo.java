@@ -110,9 +110,10 @@ public class DatabaseInfo implements DatabaseInfoMBean {
         return database.getMode().getName();
     }
 
+    @Deprecated
     @Override
     public boolean isMultiThreaded() {
-        return database.isMultiThreaded();
+        return database.isMVStore();
     }
 
     @Deprecated
@@ -224,7 +225,7 @@ public class DatabaseInfo implements DatabaseInfoMBean {
 
     @Override
     public String getVersion() {
-        return Constants.getFullVersion();
+        return Constants.FULL_VERSION;
     }
 
     @Override

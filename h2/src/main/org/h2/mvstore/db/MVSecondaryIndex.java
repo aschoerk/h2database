@@ -5,7 +5,6 @@
  */
 package org.h2.mvstore.db;
 
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.PriorityQueue;
@@ -13,11 +12,11 @@ import java.util.Queue;
 import org.h2.api.ErrorCode;
 import org.h2.command.dml.AllColumnsForPlan;
 import org.h2.engine.Database;
-import org.h2.engine.Mode;
 import org.h2.engine.Session;
 import org.h2.index.BaseIndex;
 import org.h2.index.Cursor;
 import org.h2.index.IndexType;
+import org.h2.index.SingleRowCursor;
 import org.h2.message.DbException;
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVMap;
@@ -35,6 +34,7 @@ import org.h2.value.Value;
 import org.h2.value.ValueArray;
 import org.h2.value.ValueLong;
 import org.h2.value.ValueNull;
+import org.h2.value.VersionedValue;
 
 /**
  * A table stored in a MVStore.
@@ -109,27 +109,26 @@ public final class MVSecondaryIndex extends BaseIndex implements MVIndex {
         }
 
         public static final class Comparator implements java.util.Comparator<Source> {
-            private final Mode databaseMode;
+            private final Database database;
             private final CompareMode compareMode;
 
-            public Comparator(Mode databaseMode, CompareMode compareMode) {
-                this.databaseMode = databaseMode;
+            public Comparator(Database database, CompareMode compareMode) {
+                this.database = database;
                 this.compareMode = compareMode;
             }
 
             @Override
             public int compare(Source one, Source two) {
-                return one.currentRowData.compareTo(two.currentRowData, databaseMode, compareMode);
+                return one.currentRowData.compareTo(two.currentRowData, database, compareMode);
             }
         }
     }
 
     @Override
     public void addBufferedRows(List<String> bufferNames) {
-        CompareMode compareMode = database.getCompareMode();
         int buffersCount = bufferNames.size();
         Queue<Source> queue = new PriorityQueue<>(buffersCount,
-                new Source.Comparator(database.getMode(), compareMode));
+                new Source.Comparator(database, database.getCompareMode()));
         for (String bufferName : bufferNames) {
             Iterator<ValueArray> iter = openMap(bufferName).keyIterator(null);
             if (iter.hasNext()) {
@@ -209,14 +208,15 @@ public final class MVSecondaryIndex extends BaseIndex implements MVIndex {
     }
 
     private void checkUnique(TransactionMap<Value, Value> map, ValueArray row, long newKey) {
-        Iterator<Value> it = map.keyIterator(convertToKey(row, ValueLong.MIN), convertToKey(row, ValueLong.MAX), true);
+        Iterator<Value> it = map.keyIteratorUncommitted(convertToKey(row, ValueLong.MIN),
+                                                        convertToKey(row, ValueLong.MAX));
         while (it.hasNext()) {
             ValueArray rowData = (ValueArray)it.next();
             Value[] array = rowData.getList();
             Value rowKey = array[array.length - 1];
             long rowId = rowKey.getLong();
             if (newKey != rowId) {
-                if (map.get(rowData) != null) {
+                if (map.getImmediate(rowData) != null) {
                     // committed
                     throw getDuplicateKeyException(rowKey.toString());
                 }
@@ -271,7 +271,7 @@ public final class MVSecondaryIndex extends BaseIndex implements MVIndex {
         ValueArray min = convertToKey(first, bigger ? ValueLong.MAX : ValueLong.MIN);
         ValueArray max = convertToKey(last, ValueLong.MAX);
         TransactionMap<Value,Value> map = getMap(session);
-        return new MVStoreCursor(session, map.keyIterator(min, max, false));
+        return new MVStoreCursor(session, map.keyIterator(min, max));
     }
 
     private static ValueArray convertToKey(ValueArray r, ValueLong key) {
@@ -290,7 +290,7 @@ public final class MVSecondaryIndex extends BaseIndex implements MVIndex {
             int idx = c.getColumnId();
             Value v = r.getValue(idx);
             if (v != null) {
-                array[i] = v.convertTo(c.getType(), database.getMode(), null);
+                array[i] = v.convertTo(c.getType(), database, true, null);
             }
         }
         array[keyColumns - 1] = key != null ? key : ValueLong.get(r.getKey());
@@ -357,21 +357,16 @@ public final class MVSecondaryIndex extends BaseIndex implements MVIndex {
     @Override
     public Cursor findFirstOrLast(Session session, boolean first) {
         TransactionMap<Value, Value> map = getMap(session);
-        Value key = first ? map.firstKey() : map.lastKey();
-        while (true) {
+        for (Value key = first ? map.firstKey() : map.lastKey();; //
+                key = first ? map.higherKey(key) : map.lowerKey(key)) {
             if (key == null) {
-                return new MVStoreCursor(session,
-                        Collections.<Value>emptyIterator());
+                return new SingleRowCursor(null);
             }
-            if (((ValueArray) key).getList()[0] != ValueNull.INSTANCE) {
-                break;
+            Value[] values = ((ValueArray) key).getList();
+            if (values[0] != ValueNull.INSTANCE) {
+                return new SingleRowCursor(mvTable.getRow(session, values[values.length - 1].getLong()));
             }
-            key = first ? map.higherKey(key) : map.lowerKey(key);
         }
-        MVStoreCursor cursor = new MVStoreCursor(session,
-                                Collections.singletonList(key).iterator());
-        cursor.next();
-        return cursor;
     }
 
     @Override
@@ -414,11 +409,6 @@ public final class MVSecondaryIndex extends BaseIndex implements MVIndex {
         return find(session, higherThan, true, last);
     }
 
-    @Override
-    public void checkRename() {
-        // ok
-    }
-
     /**
      * Get the map to store the data.
      *
@@ -431,6 +421,11 @@ public final class MVSecondaryIndex extends BaseIndex implements MVIndex {
         }
         Transaction t = session.getTransaction();
         return dataMap.getInstance(t);
+    }
+
+    @Override
+    public MVMap<Value, VersionedValue> getMVMap() {
+        return dataMap.map;
     }
 
     /**

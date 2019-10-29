@@ -507,8 +507,6 @@ public abstract class Table extends SchemaObjectBase {
                 if (e.getErrorCode() == ErrorCode.CONCURRENT_UPDATE_1
                         || e.getErrorCode() == ErrorCode.ROW_NOT_FOUND_WHEN_DELETING_1) {
                     session.rollbackTo(rollback);
-                    session.startStatementWithinTransaction();
-                    rollback = session.setSavepoint();
                 }
                 throw e;
             }
@@ -526,8 +524,6 @@ public abstract class Table extends SchemaObjectBase {
             } catch (DbException e) {
                 if (e.getErrorCode() == ErrorCode.CONCURRENT_UPDATE_1) {
                     session.rollbackTo(rollback);
-                    session.startStatementWithinTransaction();
-                    rollback = session.setSavepoint();
                 }
                 throw e;
             }
@@ -1209,6 +1205,20 @@ public abstract class Table extends SchemaObjectBase {
     }
 
     /**
+     * Removes dependencies of column expressions, used for tables with circular
+     * dependencies.
+     *
+     * @param session the session
+     */
+    public void removeColumnExpressionsDependencies(Session session) {
+        for (Column column : columns) {
+            column.setDefaultExpression(session, null);
+            column.setOnUpdateExpression(session, null);
+            column.removeCheckConstraint();
+        }
+    }
+
+    /**
      * Check if a deadlock occurred. This method is called recursively. There is
      * a circle if the session to be tested has already being visited. If this
      * session is part of the circle (if it is the clash session), the method
@@ -1248,7 +1258,7 @@ public abstract class Table extends SchemaObjectBase {
      *         1 otherwise
      */
     public int compareValues(Value a, Value b) {
-        return a.compareTo(b, database.getMode(), compareMode);
+        return a.compareTo(b, database, compareMode);
     }
 
     public CompareMode getCompareMode() {
@@ -1271,7 +1281,7 @@ public abstract class Table extends SchemaObjectBase {
         } else {
             v = expression.getValue(session);
         }
-        return column.convert(v);
+        return column.convert(v, false);
     }
 
     /**

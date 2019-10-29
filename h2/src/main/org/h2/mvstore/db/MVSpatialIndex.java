@@ -5,6 +5,7 @@
  */
 package org.h2.mvstore.db;
 
+import org.h2.mvstore.MVMap;
 import static org.h2.util.geometry.GeometryUtils.MAX_X;
 import static org.h2.util.geometry.GeometryUtils.MAX_Y;
 import static org.h2.util.geometry.GeometryUtils.MIN_X;
@@ -138,7 +139,7 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
         if (indexType.isUnique()) {
             // this will detect committed entries only
             RTreeCursor cursor = spatialMap.findContainedKeys(key);
-            Iterator<SpatialKey> it = map.wrapIterator(cursor, false);
+            Iterator<SpatialKey> it = new SpatialKeyIterator(map, cursor, false);
             while (it.hasNext()) {
                 SpatialKey k = it.next();
                 if (k.equalsIgnoringId(key)) {
@@ -154,7 +155,7 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
         if (indexType.isUnique()) {
             // check if there is another (uncommitted) entry
             RTreeCursor cursor = spatialMap.findContainedKeys(key);
-            Iterator<SpatialKey> it = map.wrapIterator(cursor, true);
+            Iterator<SpatialKey> it = new SpatialKeyIterator(map, cursor, true);
             while (it.hasNext()) {
                 SpatialKey k = it.next();
                 if (k.equalsIgnoringId(key)) {
@@ -162,7 +163,7 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
                         continue;
                     }
                     map.remove(key);
-                    if (map.get(k) != null) {
+                    if (map.getImmediate(k) != null) {
                         // committed
                         throw getDuplicateKeyException(k.toString());
                     }
@@ -194,19 +195,10 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
     }
 
     @Override
-    public Cursor find(TableFilter filter, SearchRow first, SearchRow last) {
-        return find(filter.getSession());
-    }
-
-    @Override
     public Cursor find(Session session, SearchRow first, SearchRow last) {
-        return find(session);
-    }
-
-    private Cursor find(Session session) {
         Iterator<SpatialKey> cursor = spatialMap.keyIterator(null);
         TransactionMap<SpatialKey, Value> map = getMap(session);
-        Iterator<SpatialKey> it = map.wrapIterator(cursor, false);
+        Iterator<SpatialKey> it = new SpatialKeyIterator(map, cursor, false);
         return new MVStoreCursor(session, it, mvTable);
     }
 
@@ -220,7 +212,7 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
         Iterator<SpatialKey> cursor =
                 spatialMap.findIntersectingKeys(getKey(intersection));
         TransactionMap<SpatialKey, Value> map = getMap(session);
-        Iterator<SpatialKey> it = map.wrapIterator(cursor, false);
+        Iterator<SpatialKey> it = new SpatialKeyIterator(map, cursor, false);
         return new MVStoreCursor(session, it, mvTable);
     }
 
@@ -335,20 +327,6 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
     }
 
     @Override
-    public boolean canGetFirstOrLast() {
-        return true;
-    }
-
-    @Override
-    public Cursor findFirstOrLast(Session session, boolean first) {
-        if (!first) {
-            throw DbException.throwInternalError(
-                    "Spatial Index can only be fetch in ascending order");
-        }
-        return find(session);
-    }
-
-    @Override
     public boolean needRebuild() {
         try {
             return dataMap.sizeAsLongMax() == 0;
@@ -378,11 +356,6 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
         return 0;
     }
 
-    @Override
-    public void checkRename() {
-        // ok
-    }
-
     /**
      * Get the map to store the data.
      *
@@ -397,10 +370,16 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
         return dataMap.getInstance(t);
     }
 
+    @Override
+    public MVMap<SpatialKey, VersionedValue> getMVMap() {
+        return dataMap.map;
+    }
+
+
     /**
      * A cursor.
      */
-    public static class MVStoreCursor implements Cursor {
+    private static class MVStoreCursor implements Cursor {
 
         private final Session session;
         private final Iterator<SpatialKey> it;
@@ -409,7 +388,7 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
         private SearchRow searchRow;
         private Row row;
 
-        public MVStoreCursor(Session session, Iterator<SpatialKey> it, MVTable mvTable) {
+        MVStoreCursor(Session session, Iterator<SpatialKey> it, MVTable mvTable) {
             this.session = session;
             this.it = it;
             this.mvTable = mvTable;
@@ -437,15 +416,6 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
             return searchRow;
         }
 
-        /**
-         * Returns the current key.
-         *
-         * @return the current key
-         */
-        public SpatialKey getKey() {
-            return current;
-        }
-
         @Override
         public boolean next() {
             current = it.hasNext() ? it.next() : null;
@@ -459,6 +429,44 @@ public class MVSpatialIndex extends BaseIndex implements SpatialIndex, MVIndex {
             throw DbException.getUnsupportedException("previous");
         }
 
+    }
+
+    private static class SpatialKeyIterator implements Iterator<SpatialKey>
+    {
+        private final TransactionMap<SpatialKey, Value> map;
+        private final Iterator<SpatialKey> iterator;
+        private final boolean includeUncommitted;
+        private SpatialKey current;
+
+        SpatialKeyIterator(TransactionMap<SpatialKey, Value> map,
+                            Iterator<SpatialKey> iterator, boolean includeUncommitted) {
+            this.map = map;
+            this.iterator = iterator;
+            this.includeUncommitted = includeUncommitted;
+            fetchNext();
+        }
+
+        private void fetchNext() {
+            while (iterator.hasNext()) {
+                current = iterator.next();
+                if (includeUncommitted || map.containsKey(current)) {
+                    return;
+                }
+            }
+            current = null;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return current != null;
+        }
+
+        @Override
+        public SpatialKey next() {
+            SpatialKey result = current;
+            fetchNext();
+            return result;
+        }
     }
 
     /**

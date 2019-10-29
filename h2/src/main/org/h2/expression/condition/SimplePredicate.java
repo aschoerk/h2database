@@ -17,7 +17,14 @@ import org.h2.table.TableFilter;
  */
 public abstract class SimplePredicate extends Condition {
 
+    /**
+     * The left hand side of the expression.
+     */
     Expression left;
+
+    /**
+     * Whether it is a "not" condition (e.g. "is not like").
+     */
     final boolean not;
 
     SimplePredicate(Expression left, boolean not) {

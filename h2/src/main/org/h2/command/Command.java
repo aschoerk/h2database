@@ -7,11 +7,13 @@ package org.h2.command;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.h2.api.ErrorCode;
 import org.h2.engine.Constants;
 import org.h2.engine.Database;
+import org.h2.engine.DbObject;
 import org.h2.engine.Session;
 import org.h2.expression.ParameterInterface;
 import org.h2.message.DbException;
@@ -154,15 +156,11 @@ public abstract class Command implements CommandInterface {
 
     @Override
     public void stop() {
-        session.setCurrentCommand(null);
         if (!isTransactional()) {
             session.commit(true);
         } else if (session.getAutoCommit()) {
             session.commit(false);
-        } else {
-            session.unlockReadLocks();
         }
-        session.endStatement();
         if (trace.isInfoEnabled() && startTimeNanos > 0) {
             long timeMillis = (System.nanoTime() - startTimeNanos) / 1000 / 1000;
             if (timeMillis > Constants.SLOW_QUERY_LIMIT_MS) {
@@ -184,19 +182,12 @@ public abstract class Command implements CommandInterface {
         startTimeNanos = 0;
         long start = 0;
         Database database = session.getDatabase();
-        Object sync = database.isMultiThreaded() || database.getStore() != null ? session : database;
+        Object sync = database.isMVStore() ? session : database;
         session.waitIfExclusiveModeEnabled();
         boolean callStop = true;
-        boolean writing = !isReadOnly();
-        if (writing) {
-            while (!database.beforeWriting()) {
-                // wait
-            }
-        }
         //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (sync) {
-            session.startStatementWithinTransaction();
-            session.setCurrentCommand(this);
+            session.startStatementWithinTransaction(this);
             try {
                 while (true) {
                     database.checkPowerOff();
@@ -233,11 +224,9 @@ public abstract class Command implements CommandInterface {
                 database.checkPowerOff();
                 throw e;
             } finally {
+                session.endStatement();
                 if (callStop) {
                     stop();
-                }
-                if (writing) {
-                    database.afterWriting();
                 }
             }
         }
@@ -247,20 +236,13 @@ public abstract class Command implements CommandInterface {
     public ResultWithGeneratedKeys executeUpdate(Object generatedKeysRequest) {
         long start = 0;
         Database database = session.getDatabase();
-        Object sync = database.isMultiThreaded() || database.getStore() != null ? session : database;
+        Object sync = database.isMVStore() ? session : database;
         session.waitIfExclusiveModeEnabled();
         boolean callStop = true;
-        boolean writing = !isReadOnly();
-        if (writing) {
-            while (!database.beforeWriting()) {
-                // wait
-            }
-        }
         //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (sync) {
             Session.Savepoint rollback = session.setSavepoint();
-            session.startStatementWithinTransaction();
-            session.setCurrentCommand(this);
+            session.startStatementWithinTransaction(this);
             DbException ex = null;
             try {
                 while (true) {
@@ -300,6 +282,7 @@ public abstract class Command implements CommandInterface {
                 throw e;
             } finally {
                 try {
+                    session.endStatement();
                     if (callStop) {
                         stop();
                     }
@@ -308,10 +291,6 @@ public abstract class Command implements CommandInterface {
                         throw nested;
                     } else {
                         ex.addSuppressed(nested);
-                    }
-                } finally {
-                    if (writing) {
-                        database.afterWriting();
                     }
                 }
             }
@@ -331,17 +310,13 @@ public abstract class Command implements CommandInterface {
         }
         // Only in PageStore mode we need to sleep here to avoid busy wait loop
         Database database = session.getDatabase();
-        if (database.getStore() == null) {
+        if (!database.isMVStore()) {
             int sleep = 1 + MathUtils.randomInt(10);
             while (true) {
                 try {
-                    if (database.isMultiThreaded()) {
-                        Thread.sleep(sleep);
-                    } else {
-                        // although nobody going to notify us
-                        // it is vital to give up lock on a database
-                        database.wait(sleep);
-                    }
+                    // although nobody going to notify us
+                    // it is vital to give up lock on a database
+                    database.wait(sleep);
                 } catch (InterruptedException e1) {
                     // ignore
                 }
@@ -397,4 +372,6 @@ public abstract class Command implements CommandInterface {
     public void setCanReuse(boolean canReuse) {
         this.canReuse = canReuse;
     }
+
+    public abstract Set<DbObject> getDependencies();
 }

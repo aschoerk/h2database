@@ -77,11 +77,6 @@ public class Mode {
     public boolean indexDefinitionInCreateTable;
 
     /**
-     * Meta data calls return identifiers in lower case.
-     */
-    public boolean lowerCaseIdentifiers;
-
-    /**
      * Concatenation with NULL results in NULL. Usually, NULL is treated as an
      * empty string if only one of the operands is NULL, and NULL is only
      * returned if both operands are NULL.
@@ -176,9 +171,9 @@ public class Mode {
     public boolean supportPoundSymbolForColumnNames;
 
     /**
-     * Whether an empty list as in "NAME IN()" results in a syntax error.
+     * Whether IN predicate may have an empty value list.
      */
-    public boolean prohibitEmptyInPredicate;
+    public boolean allowEmptyInPredicate;
 
     /**
      * Whether AFFINITY KEY keywords are supported.
@@ -258,6 +253,18 @@ public class Mode {
     public boolean allowEmptySchemaValuesAsDefaultSchema;
 
     /**
+     * If {@code true} all numeric data types may have precision and 'UNSIGNED'
+     * clause.
+     */
+    public boolean allNumericTypesHavePrecision;
+
+    /**
+     * If {@code true} 'FOR BIT DATA' clauses are allowed for character string
+     * data types.
+     */
+    public boolean forBitData;
+
+    /**
      * An optional Set of hidden/disallowed column types.
      * Certain DBMSs don't support all column types provided by H2, such as
      * "NUMBER" when using PostgreSQL mode.
@@ -276,6 +283,7 @@ public class Mode {
     static {
         Mode mode = new Mode(ModeEnum.REGULAR);
         mode.nullConcatIsNull = true;
+        mode.allowEmptyInPredicate = true;
         mode.dateTimeValueWithinTransaction = true;
         add(mode);
 
@@ -289,8 +297,8 @@ public class Mode {
         mode.supportedClientInfoPropertiesRegEx =
                 Pattern.compile("ApplicationName|ClientAccountingInformation|" +
                         "ClientUser|ClientCorrelationToken");
-        mode.prohibitEmptyInPredicate = true;
         mode.allowDB2TimestampFormat = true;
+        mode.forBitData = true;
         add(mode);
 
         mode = new Mode(ModeEnum.Derby);
@@ -300,6 +308,7 @@ public class Mode {
         mode.isolationLevelInSelectOrInsertStatement = true;
         // Derby does not support client info properties as of version 10.12.1.1
         mode.supportedClientInfoPropertiesRegEx = null;
+        mode.forBitData = true;
         add(mode);
 
         mode = new Mode(ModeEnum.HSQLDB);
@@ -342,7 +351,6 @@ public class Mode {
 
         mode = new Mode(ModeEnum.MySQL);
         mode.indexDefinitionInCreateTable = true;
-        mode.lowerCaseIdentifiers = true;
         // Next one is for MariaDB
         mode.regexpReplaceBackslashReferences = true;
         mode.onDuplicateKeyUpdate = true;
@@ -353,13 +361,13 @@ public class Mode {
         //     JDBC4CommentClientInfoProvider.java
         mode.supportedClientInfoPropertiesRegEx =
                 Pattern.compile(".*");
-        mode.prohibitEmptyInPredicate = true;
         mode.charToBinaryInUtf8 = true;
         mode.zeroExLiteralsAreBinaryStrings = true;
         mode.allowUnrelatedOrderByExpressionsInDistinctQueries = true;
         mode.alterTableExtensionsMySQL = true;
         mode.alterTableModifyColumn = true;
         mode.truncateTableRestartIdentity = true;
+        mode.allNumericTypesHavePrecision = true;
         add(mode);
 
         mode = new Mode(ModeEnum.Oracle);
@@ -373,7 +381,6 @@ public class Mode {
         // https://docs.oracle.com/database/121/JJDBC/jdbcvers.htm#JJDBC29006
         mode.supportedClientInfoPropertiesRegEx =
                 Pattern.compile(".*\\..*");
-        mode.prohibitEmptyInPredicate = true;
         mode.alterTableModifyColumn = true;
         mode.decimalSequences = true;
         dt = DataType.createDate(/* 2001-01-01 23:59:59 */ 19, 19, "DATE", false, 0, 0);
@@ -396,7 +403,6 @@ public class Mode {
         //     org/postgresql/jdbc4/AbstractJdbc4Connection.java
         mode.supportedClientInfoPropertiesRegEx =
                 Pattern.compile("ApplicationName");
-        mode.prohibitEmptyInPredicate = true;
         mode.padFixedLengthStrings = true;
         // Enumerate all H2 types NOT supported by PostgreSQL:
         Set<String> disallowedTypes = new java.util.HashSet<>();
@@ -417,6 +423,7 @@ public class Mode {
         mode.nullConcatIsNull = true;
         mode.allowAffinityKey = true;
         mode.indexDefinitionInCreateTable = true;
+        mode.allowEmptyInPredicate = true;
         mode.dateTimeValueWithinTransaction = true;
         add(mode);
     }

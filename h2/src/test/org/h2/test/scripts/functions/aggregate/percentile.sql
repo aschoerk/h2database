@@ -609,20 +609,20 @@ select median(v) from test;
 delete from test;
 > update count: 5
 
-insert into test values ('2000-01-20 20:00:00+10:15'), ('2000-01-21 20:00:00-09');
+insert into test values ('2000-01-20 20:00:00+10:15:15'), ('2000-01-21 20:00:00-09');
 > update count: 2
 
 select median(v) from test;
->> 2000-01-21 08:00:30+00:37
+>> 2000-01-21 08:00:00.5+00:37:37
 
 delete from test;
 > update count: 2
 
-insert into test values ('-2000-01-20 20:00:00+10:15'), ('-2000-01-21 20:00:00-09');
+insert into test values ('-2000-01-20 20:00:00+10:15:15'), ('-2000-01-21 20:00:00-09');
 > update count: 2
 
 select median(v) from test;
->> -2000-01-21 08:00:30+00:37
+>> -2000-01-21 08:00:00.5+00:37:37
 
 drop table test;
 > ok
@@ -898,3 +898,15 @@ SELECT percentile_disc(v) within group (order by v) from test;
 
 drop table test;
 > ok
+
+SELECT PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY V) FROM (VALUES TIME WITH TIME ZONE '10:30:00Z', TIME WITH TIME ZONE '15:30:00+10') T(V);
+>> 15:00:00+09
+
+SELECT PERCENTILE_CONT(0.7) WITHIN GROUP (ORDER BY V) FROM (VALUES TIME WITH TIME ZONE '10:00:00Z', TIME WITH TIME ZONE '12:00:00+00:00:01') T(V);
+>> 11:24:00.7+00
+
+SELECT PERCENTILE_CONT(0.7) WITHIN GROUP (ORDER BY V) FROM (VALUES TIME WITH TIME ZONE '23:59:59.999999999Z', TIME WITH TIME ZONE '23:59:59.999999999+00:00:01') T(V);
+>> 23:59:59.299999999-00:00:01
+
+SELECT PERCENTILE_CONT(0.7) WITHIN GROUP (ORDER BY V) FROM (VALUES TIME WITH TIME ZONE '00:00:00Z', TIME WITH TIME ZONE '00:00:00-00:00:01') T(V);
+>> 00:00:00.3+00:00:01

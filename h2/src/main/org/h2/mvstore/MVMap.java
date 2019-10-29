@@ -161,12 +161,32 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     }
 
     /**
+     * Get the first key of this page.
+     *
+     * @param p the page
+     * @return the key, or null
+     */
+    public final K firstKey(Page p) {
+        return getFirstLast(p, true);
+    }
+
+    /**
      * Get the last key, or null if the map is empty.
      *
      * @return the last key, or null
      */
     public final K lastKey() {
         return getFirstLast(false);
+    }
+
+    /**
+     * Get the last key of this page.
+     *
+     * @param p the page
+     * @return the key, or null
+     */
+    public final K lastKey(Page p) {
+        return getFirstLast(p, false);
     }
 
     /**
@@ -279,9 +299,13 @@ public class MVMap<K, V> extends AbstractMap<K, V>
      * @param first whether to retrieve the first key
      * @return the key, or null if the map is empty
      */
-    @SuppressWarnings("unchecked")
     private K getFirstLast(boolean first) {
         Page p = getRootPage();
+        return getFirstLast(p, first);
+    }
+
+    @SuppressWarnings("unchecked")
+    private K getFirstLast(Page p, boolean first) {
         if (p.getTotalCount() == 0) {
             return null;
         }
@@ -305,6 +329,18 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     }
 
     /**
+     * Get the smallest key that is larger than the given key, for the given
+     * root page, or null if no such key exists.
+     *
+     * @param p the root page
+     * @param key the key
+     * @return the result
+     */
+    public final K higherKey(Page p, K key) {
+        return getMinMax(p, key, false, true);
+    }
+
+    /**
      * Get the smallest key that is larger or equal to this key.
      *
      * @param key the key
@@ -312,6 +348,17 @@ public class MVMap<K, V> extends AbstractMap<K, V>
      */
     public final K ceilingKey(K key) {
         return getMinMax(key, false, false);
+    }
+
+    /**
+     * Get the smallest key that is larger or equal to this key, for the given root page.
+     *
+     * @param p the root page
+     * @param key the key
+     * @return the result
+     */
+    public final K ceilingKey(Page p, K key) {
+        return getMinMax(p, key, false, false);
     }
 
     /**
@@ -325,6 +372,17 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     }
 
     /**
+     * Get the largest key that is smaller or equal to this key, for the given root page.
+     *
+     * @param p the root page
+     * @param key the key
+     * @return the result
+     */
+    public final K floorKey(Page p, K key) {
+        return getMinMax(p, key, true, false);
+    }
+
+    /**
      * Get the largest key that is smaller than the given key, or null if no
      * such key exists.
      *
@@ -333,6 +391,18 @@ public class MVMap<K, V> extends AbstractMap<K, V>
      */
     public final K lowerKey(K key) {
         return getMinMax(key, true, true);
+    }
+
+    /**
+     * Get the largest key that is smaller than the given key, for the given
+     * root page, or null if no such key exists.
+     *
+     * @param p the root page
+     * @param key the key
+     * @return the result
+     */
+    public final K lowerKey(Page p, K key) {
+        return getMinMax(p, key, true, true);
     }
 
     /**
@@ -415,6 +485,11 @@ public class MVMap<K, V> extends AbstractMap<K, V>
         clearIt();
     }
 
+    /**
+     * Remove all entries and return the root reference.
+     *
+     * @return the new root reference
+     */
     RootReference clearIt() {
         Page emptyRootPage = createEmptyLeaf();
         int attempt = 0;
@@ -732,12 +807,6 @@ public class MVMap<K, V> extends AbstractMap<K, V>
                         K k = cursor.next();
                         return new SimpleImmutableEntry<>(k, cursor.getValue());
                     }
-
-                    @Override
-                    public void remove() {
-                        throw DataUtils.newUnsupportedOperationException(
-                                "Removing is not supported");
-                    }
                 };
 
             }
@@ -842,6 +911,13 @@ public class MVMap<K, V> extends AbstractMap<K, V>
         root.set(new RootReference(rootPage, version));
     }
 
+    /**
+     * Compare and set the root reference.
+     *
+     * @param expectedRootReference the old (expected)
+     * @param updatedRootReference the new
+     * @return whether updating worked
+     */
     final boolean compareAndSetRoot(RootReference expectedRootReference, RootReference updatedRootReference) {
         return root.compareAndSet(expectedRootReference, updatedRootReference);
     }
@@ -1304,7 +1380,8 @@ public class MVMap<K, V> extends AbstractMap<K, V>
                 p = replacePage(pos, p, unsavedMemoryHolder);
                 rootReference = rootReference.updatePageAndLockedStatus(p, preLocked || isPersistent(),
                         remainingBuffer);
-                if (rootReference != null) {    // should always be the case, except for spurious failure?
+                if (rootReference != null) {
+                    // should always be the case, except for spurious failure?
                     locked = preLocked || isPersistent();
                     if (isPersistent() && tip != null) {
                         store.registerUnsavedMemory(unsavedMemoryHolder.value + tip.processRemovalInfo(version));
@@ -1843,6 +1920,13 @@ public class MVMap<K, V> extends AbstractMap<K, V>
         }
     }
 
+    /**
+     * Try to lock the root.
+     *
+     * @param rootReference the old root reference
+     * @param attempt the number of attempts so far
+     * @return the new root reference
+     */
     protected RootReference tryLock(RootReference rootReference, int attempt) {
         RootReference lockedRootReference = rootReference.tryLock(attempt);
         if (lockedRootReference != null) {
@@ -1883,10 +1967,21 @@ public class MVMap<K, V> extends AbstractMap<K, V>
         return null;
     }
 
+    /**
+     * Unlock the root page, the new root being null.
+     *
+     * @return the new root reference (never null)
+     */
     private RootReference unlockRoot() {
         return unlockRoot(null, -1);
     }
 
+    /**
+     * Unlock the root page.
+     *
+     * @param newRootPage the new root
+     * @return the new root reference (never null)
+     */
     protected RootReference unlockRoot(Page newRootPage) {
         return unlockRoot(newRootPage, -1);
     }
