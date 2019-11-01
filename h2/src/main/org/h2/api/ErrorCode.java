@@ -1010,15 +1010,7 @@ public class ErrorCode {
      */
     public static final int WRONG_PASSWORD_FORMAT = 90050;
 
-    /**
-     * The error with code <code>90051</code> is thrown when
-     * trying to use a scale that is > precision.
-     * Example:
-     * <pre>
-     * CREATE TABLE TABLE1 ( FAIL NUMBER(6,24) );
-     * </pre>
-     */
-    public static final int INVALID_VALUE_SCALE_PRECISION = 90051;
+    // 90051 was removed
 
     /**
      * The error with code <code>90052</code> is thrown when
@@ -1074,9 +1066,9 @@ public class ErrorCode {
     public static final int UNSUPPORTED_CIPHER = 90055;
 
     /**
-    * The error with code <code>90056</code> is thrown when trying to format a
-    * timestamp using TO_DATE and TO_TIMESTAMP  with an invalid format.
-    */
+     * The error with code <code>90056</code> is thrown when trying to format a
+     * timestamp using TO_DATE and TO_TIMESTAMP  with an invalid format.
+     */
     public static final int INVALID_TO_DATE_FORMAT = 90056;
 
     /**
@@ -2099,28 +2091,29 @@ public class ErrorCode {
 
     /**
      * The error with code <code>90150</code> is thrown when
-     * trying to create a catalog/database if an object with this name already exists.
+     * trying to use an invalid precision.
      * Example:
      * <pre>
-     * CREATE DATABASE TEST_DATABASE;
-     * CREATE DATABASE TEST_DATABASE;
+     * CREATE TABLE TABLE1 ( FAIL INTERVAL YEAR(20) );
      * </pre>
      */
-    public static final int CATALOG_ALREADY_EXISTS_1 = 90150;
+    public static final int INVALID_VALUE_PRECISION = 90150;
 
     /**
      * The error with code <code>90151</code> is thrown when
-     * trying to drop a catalog that does not exist.
+     * trying to use an invalid scale or fractional seconds precision.
      * Example:
      * <pre>
-     * DROP CATALOG UNKNOWN;
+     * CREATE TABLE TABLE1 ( FAIL TIME(10) );
      * </pre>
      */
-    public static final int CATALOG_NOT_FOUND_1 = 90151;
-    public static final int CATALOG_CAN_NOT_BE_DROPPED_1 = 90152;
+    public static final int INVALID_VALUE_SCALE = 90151;
 
+    // next is 90152
 
-    // next is 90151
+    // to ease merge temporary in new range
+    public static final int CATALOG_NOT_FOUND_1 = 91152;
+    public static final int CATALOG_CAN_NOT_BE_DROPPED_1 = 91153;
 
     private ErrorCode() {
         // utility class
@@ -2132,22 +2125,22 @@ public class ErrorCode {
     public static boolean isCommon(int errorCode) {
         // this list is sorted alphabetically
         switch (errorCode) {
-        case DATA_CONVERSION_ERROR_1:
-        case DUPLICATE_KEY_1:
-        case FUNCTION_ALIAS_ALREADY_EXISTS_1:
-        case LOCK_TIMEOUT_1:
-        case NULL_NOT_ALLOWED:
-        case NO_DATA_AVAILABLE:
-        case NUMERIC_VALUE_OUT_OF_RANGE_1:
-        case OBJECT_CLOSED:
-        case REFERENTIAL_INTEGRITY_VIOLATED_CHILD_EXISTS_1:
-        case REFERENTIAL_INTEGRITY_VIOLATED_PARENT_MISSING_1:
-        case SYNTAX_ERROR_1:
-        case SYNTAX_ERROR_2:
-        case TABLE_OR_VIEW_ALREADY_EXISTS_1:
-        case TABLE_OR_VIEW_NOT_FOUND_1:
-        case VALUE_TOO_LONG_2:
-            return true;
+            case DATA_CONVERSION_ERROR_1:
+            case DUPLICATE_KEY_1:
+            case FUNCTION_ALIAS_ALREADY_EXISTS_1:
+            case LOCK_TIMEOUT_1:
+            case NULL_NOT_ALLOWED:
+            case NO_DATA_AVAILABLE:
+            case NUMERIC_VALUE_OUT_OF_RANGE_1:
+            case OBJECT_CLOSED:
+            case REFERENTIAL_INTEGRITY_VIOLATED_CHILD_EXISTS_1:
+            case REFERENTIAL_INTEGRITY_VIOLATED_PARENT_MISSING_1:
+            case SYNTAX_ERROR_1:
+            case SYNTAX_ERROR_2:
+            case TABLE_OR_VIEW_ALREADY_EXISTS_1:
+            case TABLE_OR_VIEW_NOT_FOUND_1:
+            case VALUE_TOO_LONG_2:
+                return true;
         }
         return false;
     }
@@ -2161,39 +2154,39 @@ public class ErrorCode {
 
         switch (errorCode) {
 
-        // 02: no data
-        case NO_DATA_AVAILABLE: return "02000";
+            // 02: no data
+            case NO_DATA_AVAILABLE: return "02000";
 
-        // 07: dynamic SQL error
-        case INVALID_PARAMETER_COUNT_2: return "07001";
+            // 07: dynamic SQL error
+            case INVALID_PARAMETER_COUNT_2: return "07001";
 
-        // 08: connection exception
-        case ERROR_OPENING_DATABASE_1: return "08000";
+            // 08: connection exception
+            case ERROR_OPENING_DATABASE_1: return "08000";
 
-        // 21: cardinality violation
-        case COLUMN_COUNT_DOES_NOT_MATCH: return "21S02";
+            // 21: cardinality violation
+            case COLUMN_COUNT_DOES_NOT_MATCH: return "21S02";
 
-        // 42: syntax error or access rule violation
-        case TABLE_OR_VIEW_ALREADY_EXISTS_1: return "42S01";
-        case TABLE_OR_VIEW_NOT_FOUND_1: return "42S02";
-        case INDEX_ALREADY_EXISTS_1: return "42S11";
-        case INDEX_NOT_FOUND_1: return "42S12";
-        case DUPLICATE_COLUMN_NAME_1: return "42S21";
-        case COLUMN_NOT_FOUND_1: return "42S22";
-        case IDENTICAL_EXPRESSIONS_SHOULD_BE_USED: return "42S31";
+            // 42: syntax error or access rule violation
+            case TABLE_OR_VIEW_ALREADY_EXISTS_1: return "42S01";
+            case TABLE_OR_VIEW_NOT_FOUND_1: return "42S02";
+            case INDEX_ALREADY_EXISTS_1: return "42S11";
+            case INDEX_NOT_FOUND_1: return "42S12";
+            case DUPLICATE_COLUMN_NAME_1: return "42S21";
+            case COLUMN_NOT_FOUND_1: return "42S22";
+            case IDENTICAL_EXPRESSIONS_SHOULD_BE_USED: return "42S31";
 
-        // 0A: feature not supported
+            // 0A: feature not supported
 
-        // HZ: remote database access
+            // HZ: remote database access
 
-        // HY
-        case GENERAL_ERROR_1: return "HY000";
-        case UNKNOWN_DATA_TYPE_1: return "HY004";
+            // HY
+            case GENERAL_ERROR_1: return "HY000";
+            case UNKNOWN_DATA_TYPE_1: return "HY004";
 
-        case FEATURE_NOT_SUPPORTED_1: return "HYC00";
-        case LOCK_TIMEOUT_1: return "HYT00";
-        default:
-            return Integer.toString(errorCode);
+            case FEATURE_NOT_SUPPORTED_1: return "HYC00";
+            case LOCK_TIMEOUT_1: return "HYT00";
+            default:
+                return Integer.toString(errorCode);
         }
     }
 
