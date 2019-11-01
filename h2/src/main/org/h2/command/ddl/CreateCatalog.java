@@ -6,6 +6,7 @@
 package org.h2.command.ddl;
 
 import java.util.ArrayList;
+
 import org.h2.api.ErrorCode;
 import org.h2.command.CommandInterface;
 import org.h2.engine.Database;
@@ -17,17 +18,16 @@ import org.h2.schema.Schema;
 
 /**
  * This class represents the statement
- * CREATE SCHEMA
+ * CREATE DATABASE
  */
-public class CreateSchema extends DefineCommand {
+public class CreateCatalog extends DefineCommand {
 
     private String catalogName;
-    private String schemaName;
     private String authorization;
     private boolean ifNotExists;
     private ArrayList<String> tableEngineParams;
 
-    public CreateSchema(Session session) {
+    public CreateCatalog(Session session) {
         super(session);
     }
 
@@ -37,38 +37,26 @@ public class CreateSchema extends DefineCommand {
 
     @Override
     public int update() {
-        session.getUser().checkSchemaAdmin();
+        session.getUser().checkSchemaAdmin();  // TODO: checkCatalogAdmin
         session.commit(true);
         Database db = session.getDatabase();
         User user = db.getUser(authorization);
         // during DB startup, the Right/Role records have not yet been loaded
         if (!db.isStarting()) {
-            user.checkSchemaAdmin();
+            user.checkSchemaAdmin();  // TODO: checkCatalogAdmin
         }
-        Catalog catalog;
-        if (catalogName != null) {
-            catalog = db.findCatalog(catalogName);
-            if (catalog == null) {
-                throw DbException.get(ErrorCode.CATALOG_NOT_FOUND_1, catalogName);
-            }
-        } else
-            catalog = db.getMainCatalog();
-
-        if (catalog.findSchema(schemaName) != null) {
+        if (db.findCatalog(catalogName) != null) {
             if (ifNotExists) {
                 return 0;
             }
-            throw DbException.get(ErrorCode.SCHEMA_ALREADY_EXISTS_1, schemaName);
+            throw DbException.get(ErrorCode.CATALOG_ALREADY_EXISTS_1, catalogName);
         }
         int id = getObjectId();
-        Schema schema = new Schema(db, catalog, id, schemaName, user, false);
-        schema.setTableEngineParams(tableEngineParams);
-        catalog.addSchema(session, schema);
+        Catalog catalog = new Catalog(db, id, catalogName, user, false);
+        catalog.setTableEngineParams(tableEngineParams);
+        db.addDatabaseObject(session, catalog);
+        catalog.open();
         return 0;
-    }
-
-    public void setSchemaName(String name) {
-        this.schemaName = name;
     }
 
     public void setCatalogName(String name) {
@@ -85,7 +73,7 @@ public class CreateSchema extends DefineCommand {
 
     @Override
     public int getType() {
-        return CommandInterface.CREATE_SCHEMA;
+        return CommandInterface.CREATE_CATALOG;
     }
 
 }

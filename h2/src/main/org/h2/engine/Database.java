@@ -50,6 +50,7 @@ import org.h2.result.LocalResultFactory;
 import org.h2.result.Row;
 import org.h2.result.RowFactory;
 import org.h2.result.SearchRow;
+import org.h2.schema.Catalog;
 import org.h2.schema.Schema;
 import org.h2.schema.SchemaObject;
 import org.h2.schema.Sequence;
@@ -139,10 +140,11 @@ public class Database implements DataHandler, CastDataProvider {
     private final byte[] filePasswordHash;
     private final byte[] fileEncryptionKey;
 
+
     private final ConcurrentHashMap<String, Role> roles = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, User> users = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Setting> settings = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Schema> schemas = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Catalog> catalogs = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Right> rights = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Domain> domains = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, UserAggregate> aggregates = new ConcurrentHashMap<>();
@@ -156,8 +158,7 @@ public class Database implements DataHandler, CastDataProvider {
     private final BitSet objectIds = new BitSet();
     private final Object lobSyncObject = new Object();
 
-    private Schema mainSchema;
-    private Schema infoSchema;
+    private Catalog mainCatalog;
     private int nextSessionId;
     private int nextTempTableId;
     private User systemUser;
@@ -706,12 +707,12 @@ public class Database implements DataHandler, CastDataProvider {
             }
         }
         systemUser = new User(this, 0, SYSTEM_USER_NAME, true);
-        mainSchema = new Schema(this, Constants.MAIN_SCHEMA_ID, sysIdentifier(Constants.SCHEMA_MAIN), systemUser,
+
+        this.mainCatalog = new Catalog(this, Constants.MAIN_CATALOG_ID, sysIdentifier(databaseShortName), systemUser,
                 true);
-        infoSchema = new Schema(this, Constants.INFORMATION_SCHEMA_ID, sysIdentifier("INFORMATION_SCHEMA"), systemUser,
-                true);
-        schemas.put(mainSchema.getName(), mainSchema);
-        schemas.put(infoSchema.getName(), infoSchema);
+        catalogs.put(mainCatalog.getName(), mainCatalog);
+        mainCatalog.open();
+
         publicRole = new Role(this, 0, sysIdentifier(Constants.PUBLIC_ROLE_NAME), true);
         roles.put(publicRole.getName(), publicRole);
         systemUser.setAdmin(true);
@@ -738,7 +739,7 @@ public class Database implements DataHandler, CastDataProvider {
         data.isHidden = true;
         data.session = systemSession;
         starting = true;
-        meta = mainSchema.createTable(data);
+        meta = mainCatalog.getMainSchema().createTable(data);
         handleUpgradeIssues();
         IndexColumn[] pkCols = IndexColumn.wrap(new Column[] { columnId });
         metaIdIndex = meta.addIndex(systemSession, "SYS_ID",
@@ -914,22 +915,12 @@ public class Database implements DataHandler, CastDataProvider {
     }
 
     private void initMetaTables() {
-        if (metaTablesInitialized) {
-            return;
-        }
-        synchronized (infoSchema) {
-            if (!metaTablesInitialized) {
-                for (int type = 0, count = MetaTable.getMetaTableTypeCount();
-                        type < count; type++) {
-                    MetaTable m = new MetaTable(infoSchema, -1 - type, type);
-                    infoSchema.add(m);
-                }
-                metaTablesInitialized = true;
-            }
+        for (Catalog catalog: catalogs.values()) {
+            catalog.initMetaTables();
         }
     }
 
-    private void addMeta(Session session, DbObject obj) {
+    public void addMeta(Session session, DbObject obj) {
         assert Thread.holdsLock(this);
         int id = obj.getId();
         if (id > 0 && !starting && !obj.isTemporary()) {
@@ -1096,8 +1087,8 @@ public class Database implements DataHandler, CastDataProvider {
         case DbObject.RIGHT:
             result = rights;
             break;
-        case DbObject.SCHEMA:
-            result = schemas;
+        case DbObject.CATALOG:
+            result = catalogs;
             break;
         case DbObject.DOMAIN:
             result = domains;
@@ -1192,23 +1183,6 @@ public class Database implements DataHandler, CastDataProvider {
      */
     public Role findRole(String roleName) {
         return roles.get(StringUtils.toUpperEnglish(roleName));
-    }
-
-    /**
-     * Get the schema if it exists, or null if not.
-     *
-     * @param schemaName the name of the schema
-     * @return the schema or null
-     */
-    public Schema findSchema(String schemaName) {
-        if (schemaName == null) {
-            return null;
-        }
-        Schema schema = schemas.get(schemaName);
-        if (schema == infoSchema) {
-            initMetaTables();
-        }
-        return schema;
     }
 
     /**
@@ -1473,7 +1447,7 @@ public class Database implements DataHandler, CastDataProvider {
         if (!persistent) {
             return;
         }
-        boolean lobStorageIsUsed = infoSchema.findTableOrView(
+        boolean lobStorageIsUsed = mainCatalog.getInfoSchema().findTableOrView(
                 systemSession, LobStorageBackend.LOB_DATA_TABLE) != null;
         lobStorageIsUsed |= store != null;
         if (!lobStorageIsUsed) {
@@ -1612,7 +1586,7 @@ public class Database implements DataHandler, CastDataProvider {
      * @return main schema (usually PUBLIC)
      */
     public Schema getMainSchema() {
-        return mainSchema;
+        return mainCatalog.getMainSchema();
     }
 
     public ArrayList<UserAggregate> getAllAggregates() {
@@ -1646,8 +1620,8 @@ public class Database implements DataHandler, CastDataProvider {
     public ArrayList<SchemaObject> getAllSchemaObjects() {
         initMetaTables();
         ArrayList<SchemaObject> list = new ArrayList<>();
-        for (Schema schema : schemas.values()) {
-            schema.getAll(list);
+        for (Catalog catalog : catalogs.values()) {
+            list.addAll(catalog.getAllSchemaObjects());
         }
         return list;
     }
@@ -1663,8 +1637,8 @@ public class Database implements DataHandler, CastDataProvider {
             initMetaTables();
         }
         ArrayList<SchemaObject> list = new ArrayList<>();
-        for (Schema schema : schemas.values()) {
-            schema.getAll(type, list);
+        for (Catalog catalog : catalogs.values()) {
+            list.addAll(catalog.getAllSchemaObjects(type));
         }
         return list;
     }
@@ -1682,8 +1656,8 @@ public class Database implements DataHandler, CastDataProvider {
             initMetaTables();
         }
         ArrayList<Table> list = new ArrayList<>();
-        for (Schema schema : schemas.values()) {
-            list.addAll(schema.getAllTablesAndViews());
+        for (Catalog catalog : catalogs.values()) {
+            list.addAll(catalog.getAllTablesAndViews(includeMeta));
         }
         return list;
     }
@@ -1695,8 +1669,8 @@ public class Database implements DataHandler, CastDataProvider {
      */
     public ArrayList<TableSynonym> getAllSynonyms() {
         ArrayList<TableSynonym> list = new ArrayList<>();
-        for (Schema schema : schemas.values()) {
-            list.addAll(schema.getAllSynonyms());
+        for (Catalog catalog : catalogs.values()) {
+            list.addAll(catalog.getAllSynonyms());
         }
         return list;
     }
@@ -1710,18 +1684,19 @@ public class Database implements DataHandler, CastDataProvider {
     public ArrayList<Table> getTableOrViewByName(String name) {
         // we expect that at most one table matches, at least in most cases
         ArrayList<Table> list = new ArrayList<>(1);
-        for (Schema schema : schemas.values()) {
-            Table table = schema.getTableOrViewByName(name);
-            if (table != null) {
-                list.add(table);
-            }
+        for (Catalog catalog : catalogs.values()) {
+            list.addAll(catalog.getTableOrViewByName(name));
         }
         return list;
     }
 
     public Collection<Schema> getAllSchemas() {
         initMetaTables();
-        return schemas.values();
+        ArrayList<Schema> list = new ArrayList<>();
+        for (Catalog catalog : catalogs.values()) {
+            list.addAll(catalog.getAllSchemas());
+        }
+        return list;
     }
 
     public Collection<Setting> getAllSettings() {
@@ -1933,6 +1908,15 @@ public class Database implements DataHandler, CastDataProvider {
         return schema;
     }
 
+    public Schema findSchema(final String schemaName) {
+        for (Catalog catalog: catalogs.values()) {
+            Schema schema = catalog.findSchema(schemaName);
+            if (schema != null)
+                return schema;
+        }
+        return null;
+    }
+
     /**
      * Remove the object from the database.
      *
@@ -2092,7 +2076,7 @@ public class Database implements DataHandler, CastDataProvider {
         do {
             tempName = baseName + "_COPY_" + session.getId() +
                     "_" + nextTempTableId++;
-        } while (mainSchema.findTableOrView(session, tempName) != null);
+        } while (getMainSchema().findTableOrView(session, tempName) != null);
         return tempName;
     }
 
@@ -2978,4 +2962,24 @@ public class Database implements DataHandler, CastDataProvider {
         return CurrentTimestamp.get();
     }
 
+    public Catalog findCatalog(final String catalogName) {
+        if (catalogName == null) {
+            return null;
+        }
+        Catalog catalog = catalogs.get(catalogName);
+        return catalog;
+    }
+
+    public User getSystemUser() {
+        return systemUser;
+    }
+
+    public Catalog getMainCatalog() {
+        return mainCatalog;
+    }
+
+
+    public Collection<Catalog> getAllCatalogs() {
+        return catalogs.values();
+    }
 }

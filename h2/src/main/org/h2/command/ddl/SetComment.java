@@ -66,6 +66,11 @@ public class SetComment extends DefineCommand {
             object = db.findSchema(objectName);
             errorCode = ErrorCode.SCHEMA_NOT_FOUND_1;
             break;
+        case DbObject.CATALOG:
+            schemaName = null;
+            object = db.findCatalog(objectName);
+            errorCode = ErrorCode.CATALOG_NOT_FOUND_1;
+            break;
         case DbObject.SEQUENCE:
             object = db.getSchema(schemaName).getSequence(objectName);
             break;

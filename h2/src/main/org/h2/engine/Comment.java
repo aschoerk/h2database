@@ -44,6 +44,8 @@ public class Comment extends DbObjectBase {
             return "ROLE";
         case DbObject.SCHEMA:
             return "SCHEMA";
+        case DbObject.CATALOG:
+            return "CATALOG";
         case DbObject.SEQUENCE:
             return "SEQUENCE";
         case DbObject.TABLE_OR_VIEW:

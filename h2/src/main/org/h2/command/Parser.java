@@ -106,6 +106,7 @@ import org.h2.command.ddl.AlterView;
 import org.h2.command.ddl.Analyze;
 import org.h2.command.ddl.CommandWithColumns;
 import org.h2.command.ddl.CreateAggregate;
+import org.h2.command.ddl.CreateCatalog;
 import org.h2.command.ddl.CreateConstant;
 import org.h2.command.ddl.CreateDomain;
 import org.h2.command.ddl.CreateFunctionAlias;
@@ -123,6 +124,7 @@ import org.h2.command.ddl.DeallocateProcedure;
 import org.h2.command.ddl.DefineCommand;
 import org.h2.command.ddl.DropAggregate;
 import org.h2.command.ddl.DropConstant;
+import org.h2.command.ddl.DropCatalog;
 import org.h2.command.ddl.DropDatabase;
 import org.h2.command.ddl.DropDomain;
 import org.h2.command.ddl.DropFunctionAlias;
@@ -234,6 +236,7 @@ import org.h2.expression.function.TableFunction;
 import org.h2.index.Index;
 import org.h2.message.DbException;
 import org.h2.result.SortOrder;
+import org.h2.schema.Catalog;
 import org.h2.schema.Schema;
 import org.h2.schema.Sequence;
 import org.h2.table.Column;
@@ -698,6 +701,7 @@ public class Parser {
     private ArrayList<Parameter> suppliedParameters;
     private ArrayList<Parameter> suppliedParameterList;
     private String schemaName;
+    private String catalogName;
     private ArrayList<String> expectedList;
     private boolean rightsChecked;
     private boolean recompileAlways;
@@ -1200,11 +1204,24 @@ public class Parser {
     }
 
     private Schema getSchema(String schemaName) {
-        if (schemaName == null) {
-            return null;
+        Schema schema = null;
+        if (catalogName != null) {
+            Catalog catalog = database.findCatalog(catalogName);
+            if(catalog == null) {
+                throw DbException.get(ErrorCode.CATALOG_NOT_FOUND_1, catalogName);
+            }
+            if (schemaName == null)
+                schema = catalog.getMainSchema();
+            else
+                schema = catalog.findSchema(schemaName);
+        } else {
+            if(schemaName == null) {
+                schema = database.getMainCatalog().getMainSchema();
+            }
+            schema = database.getMainCatalog().findSchema(schemaName);
+
         }
-        Schema schema = findSchema(schemaName);
-        if (schema == null) {
+        if(schema == null) {
             throw DbException.get(ErrorCode.SCHEMA_NOT_FOUND_1, schemaName);
         }
         return schema;
@@ -1934,6 +1951,7 @@ public class Parser {
             boolean quoted = currentTokenQuoted;
             String tableName = readColumnIdentifier();
             int backupIndex = parseIndex;
+            catalogName = null;
             schemaName = null;
             if (readIf(DOT)) {
                 tableName = readIdentifierWithSchema2(tableName);
@@ -2193,6 +2211,8 @@ public class Parser {
             type = DbObject.ROLE;
         } else if (readIf("SCHEMA")) {
             type = DbObject.SCHEMA;
+        } else if (readIf("CATALOG")) {
+            type = DbObject.CATALOG;
         } else if (readIf("SEQUENCE")) {
             type = DbObject.SEQUENCE;
         } else if (readIf("TRIGGER")) {
@@ -2338,6 +2358,17 @@ public class Parser {
             boolean ifExists = readIfExists(false);
             DropSchema command = new DropSchema(session);
             command.setSchemaName(readUniqueIdentifier());
+            ifExists = readIfExists(ifExists);
+            command.setIfExists(ifExists);
+            ConstraintActionType dropAction = parseCascadeOrRestrict();
+            if (dropAction != null) {
+                command.setDropAction(dropAction);
+            }
+            return command;
+        } else if (readIf("CATALOG")) {
+            boolean ifExists = readIfExists(false);
+            DropCatalog command = new DropCatalog(session);
+            command.setCatalogName(readUniqueIdentifier());
             ifExists = readIfExists(ifExists);
             command.setIfExists(ifExists);
             ConstraintActionType dropAction = parseCascadeOrRestrict();
@@ -4998,9 +5029,10 @@ public class Parser {
 
     // TODO: why does this function allow defaultSchemaName=null - which resets
     // the parser schemaName for everyone ?
-    private String readIdentifierWithSchema(String defaultSchemaName) {
+    private String readIdentifierWithSchema(String defaultCatalogName, String defaultSchemaName) {
         String s = readColumnIdentifier();
         schemaName = defaultSchemaName;
+        catalogName = defaultCatalogName;
         if (readIf(DOT)) {
             s = readIdentifierWithSchema2(s);
         }
@@ -5010,25 +5042,28 @@ public class Parser {
     private String readIdentifierWithSchema2(String s) {
         schemaName = s;
         if (database.getMode().allowEmptySchemaValuesAsDefaultSchema && readIf(DOT)) {
-            if (equalsToken(schemaName, database.getShortName()) || database.getIgnoreCatalogs()) {
-                schemaName = session.getCurrentSchemaName();
-                s = readColumnIdentifier();
-            }
+            // support catalog..tablename
+            catalogName = schemaName;
+            schemaName = session.getCurrentSchemaName();
+            s = readColumnIdentifier();
         } else {
             s = readColumnIdentifier();
             if (currentTokenType == DOT) {
-                if (equalsToken(schemaName, database.getShortName()) || database.getIgnoreCatalogs()) {
-                    read();
-                    schemaName = s;
-                    s = readColumnIdentifier();
-                }
+                catalogName = schemaName;
+                read();
+                schemaName = s;
+                s = readColumnIdentifier();
             }
         }
         return s;
     }
 
     private String readIdentifierWithSchema() {
-        return readIdentifierWithSchema(session.getCurrentSchemaName());
+        return readIdentifierWithSchema(session.getCurrentCatalogName(),session.getCurrentSchemaName());
+    }
+
+    private String readIdentifierWithSchema(String schemaName) {
+        return readIdentifierWithSchema(session.getCurrentCatalogName(),schemaName);
     }
 
     private String readAliasIdentifier() {
@@ -6413,6 +6448,8 @@ public class Parser {
             return parseCreateRole();
         } else if (readIf("SCHEMA")) {
             return parseCreateSchema();
+        } else if (readIf("CATALOG")) {
+            return parseCreateCatalog();
         } else if (readIf("CONSTANT")) {
             return parseCreateConstant();
         } else if (readIf("DOMAIN") || readIf("TYPE") || readIf("DATATYPE")) {
@@ -6668,7 +6705,29 @@ public class Parser {
     private CreateSchema parseCreateSchema() {
         CreateSchema command = new CreateSchema(session);
         command.setIfNotExists(readIfNotExists());
-        command.setSchemaName(readUniqueIdentifier());
+        String s = readUniqueIdentifier();
+        if (currentTokenType == DOT) {
+            command.setCatalogName(s);
+            readIf(DOT);
+            s = readUniqueIdentifier();
+        }
+        command.setSchemaName(s);
+
+        if (readIf("AUTHORIZATION")) {
+            command.setAuthorization(readUniqueIdentifier());
+        } else {
+            command.setAuthorization(session.getUser().getName());
+        }
+        if (readIf(WITH)) {
+            command.setTableEngineParams(readTableEngineParams());
+        }
+        return command;
+    }
+
+    private CreateCatalog parseCreateCatalog() {
+        CreateCatalog command = new CreateCatalog(session);
+        command.setIfNotExists(readIfNotExists());
+        command.setCatalogName(readUniqueIdentifier());
         if (readIf("AUTHORIZATION")) {
             command.setAuthorization(readUniqueIdentifier());
         } else {

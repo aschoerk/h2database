@@ -98,6 +98,11 @@ public class Trace {
     public static final int JDBCX = 15;
 
     /**
+     * The trace module id for the CATALOG
+     */
+    public static final int CATALOG = 16;
+
+    /**
      * Module names by their ids as array indexes.
      */
     public static final String[] MODULE_NAMES = {
@@ -116,7 +121,8 @@ public class Trace {
         "trigger",
         "user",
         "pageStore",
-        "JDBCX"
+        "JDBCX",
+        "catalog"
     };
 
     private final TraceWriter traceWriter;

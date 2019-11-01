@@ -2097,7 +2097,30 @@ public class ErrorCode {
      */
     public static final int REMOTE_DATABASE_NOT_FOUND_1 = 90149;
 
-    // next is 90150
+    /**
+     * The error with code <code>90150</code> is thrown when
+     * trying to create a catalog/database if an object with this name already exists.
+     * Example:
+     * <pre>
+     * CREATE DATABASE TEST_DATABASE;
+     * CREATE DATABASE TEST_DATABASE;
+     * </pre>
+     */
+    public static final int CATALOG_ALREADY_EXISTS_1 = 90150;
+
+    /**
+     * The error with code <code>90151</code> is thrown when
+     * trying to drop a catalog that does not exist.
+     * Example:
+     * <pre>
+     * DROP CATALOG UNKNOWN;
+     * </pre>
+     */
+    public static final int CATALOG_NOT_FOUND_1 = 90151;
+    public static final int CATALOG_CAN_NOT_BE_DROPPED_1 = 90152;
+
+
+    // next is 90151
 
     private ErrorCode() {
         // utility class

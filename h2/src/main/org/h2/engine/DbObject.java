@@ -95,6 +95,11 @@ public interface DbObject {
     int SYNONYM = 15;
 
     /**
+     * This object is a catalog.
+     */
+    int CATALOG = 16;
+
+    /**
      * Get the SQL name of this object (may be quoted).
      *
      * @param alwaysQuote quote all identifiers

@@ -489,6 +489,10 @@ public interface CommandInterface extends AutoCloseable {
      */
     int EXECUTE_IMMEDIATELY = 91;
 
+    int CREATE_CATALOG = 92;
+
+    int DROP_CATALOG = 93;
+
     /**
      * Get command type.
      *

@@ -13,6 +13,7 @@ import org.h2.engine.DbObject;
 import org.h2.engine.Role;
 import org.h2.engine.Session;
 import org.h2.engine.User;
+import org.h2.schema.Catalog;
 import org.h2.schema.Schema;
 import org.h2.schema.SchemaObject;
 import org.h2.schema.Sequence;
@@ -93,12 +94,14 @@ public class DropDatabase extends DefineCommand {
             }
         } while (runLoopAgain);
 
+
         // TODO session-local temp tables are not removed
-        for (Schema schema : db.getAllSchemas()) {
-            if (schema.canDrop()) {
-                db.removeDatabaseObject(session, schema);
+        for (Catalog catalog : db.getAllCatalogs()) {
+            if (catalog.canDrop()) {
+                db.removeDatabaseObject(session, catalog);
             }
         }
+
         ArrayList<SchemaObject> list = new ArrayList<>();
         for (SchemaObject obj : db.getAllSchemaObjects(DbObject.SEQUENCE))  {
             // ignore these. the ones we want to drop will get dropped when we

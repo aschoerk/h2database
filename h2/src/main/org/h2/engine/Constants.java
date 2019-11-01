@@ -423,6 +423,11 @@ public class Constants {
     public static final int MAIN_SCHEMA_ID = 0;
 
     /**
+     * The identity of default catalog .
+     */
+    public static final int MAIN_CATALOG_ID = 0;
+
+    /**
      * The name of the default schema.
      */
     public static final String SCHEMA_MAIN = "PUBLIC";

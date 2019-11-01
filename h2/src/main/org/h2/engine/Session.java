@@ -73,6 +73,7 @@ import org.h2.value.VersionedValue;
  */
 public class Session extends SessionWithState implements TransactionStore.RollbackListener, CastDataProvider {
 
+
     public enum State { INIT, RUNNING, BLOCKED, SLEEP, THROTTLED, SUSPENDED, CLOSED }
 
     /**
@@ -1428,6 +1429,10 @@ public class Session extends SessionWithState implements TransactionStore.Rollba
     @Override
     public String getCurrentSchemaName() {
         return currentSchemaName;
+    }
+
+    public String getCurrentCatalogName() {
+        return database.getMainCatalog().getName();
     }
 
     @Override

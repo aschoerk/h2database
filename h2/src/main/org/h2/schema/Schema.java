@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.h2.api.ErrorCode;
+import org.h2.command.Parser;
 import org.h2.command.ddl.CreateSynonymData;
 import org.h2.command.ddl.CreateTableData;
 import org.h2.constraint.Constraint;
@@ -42,7 +43,8 @@ import org.h2.util.Utils;
 public class Schema extends DbObjectBase {
 
     private User owner;
-    private final boolean system;
+    private boolean system;
+    private Catalog catalog;
     private ArrayList<String> tableEngineParams;
 
     private final ConcurrentHashMap<String, Table> tablesAndViews;
@@ -71,7 +73,7 @@ public class Schema extends DbObjectBase {
      * @param system if this is a system schema (such a schema can not be
      *            dropped)
      */
-    public Schema(Database database, int id, String schemaName, User owner,
+    public Schema(Database database, Catalog catalog, int id, String schemaName, User owner,
             boolean system) {
         super(database, id, schemaName, Trace.SCHEMA);
         tablesAndViews = database.newConcurrentStringMap();
@@ -84,6 +86,7 @@ public class Schema extends DbObjectBase {
         functions = database.newConcurrentStringMap();
         this.owner = owner;
         this.system = system;
+        this.catalog = catalog;
     }
 
     /**
@@ -140,6 +143,8 @@ public class Schema extends DbObjectBase {
 
     @Override
     public void removeChildrenAndResources(Session session) {
+        if (!canDrop())
+            return;
         removeChildrenFromMap(session, triggers);
         removeChildrenFromMap(session, constraints);
         // There can be dependencies between tables e.g. using computed columns,
@@ -729,4 +734,17 @@ public class Schema extends DbObjectBase {
         }
     }
 
+    @Override
+    public StringBuilder getSQL(StringBuilder builder, boolean alwaysQuote) {
+        if (catalog != null) {
+            Parser.quoteIdentifier(builder, catalog.getName(), alwaysQuote);
+            builder.append('.');
+        }
+        return Parser.quoteIdentifier(builder, getName(), alwaysQuote);
+    }
+
+
+    public void setCanDrop(final boolean canDrop) {
+        system = !canDrop;
+    }
 }
