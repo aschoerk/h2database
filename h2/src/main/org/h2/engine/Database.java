@@ -74,7 +74,7 @@ import org.h2.table.TableType;
 import org.h2.table.TableView;
 import org.h2.tools.DeleteDbFiles;
 import org.h2.tools.Server;
-import org.h2.util.CurrentTimestamp;
+import org.h2.util.DateTimeUtils;
 import org.h2.util.JdbcUtils;
 import org.h2.util.MathUtils;
 import org.h2.util.NetUtils;
@@ -592,6 +592,13 @@ public class Database implements DataHandler, CastDataProvider {
                 : dbSettings.databaseToLower ? StringUtils.toLowerEnglish(n) : n;
     }
 
+    private void initTraceSystem(int traceLevelFile, int traceLevelSystemOut)  {
+        traceSystem.setLevelFile(traceLevelFile);
+        traceSystem.setLevelSystemOut(traceLevelSystemOut);
+        trace = traceSystem.getTrace(Trace.DATABASE);
+        trace.info("opening {0} (build {1})", databaseName, Constants.BUILD_ID);
+    }
+
     private synchronized void open(int traceLevelFile, int traceLevelSystemOut, ConnectionInfo ci) {
         if (persistent) {
             String dataFileName = databaseName + Constants.SUFFIX_OLD_DATABASE_FILE;
@@ -629,10 +636,7 @@ public class Database implements DataHandler, CastDataProvider {
                 traceSystem = new TraceSystem(databaseName +
                         Constants.SUFFIX_TRACE_FILE);
             }
-            traceSystem.setLevelFile(traceLevelFile);
-            traceSystem.setLevelSystemOut(traceLevelSystemOut);
-            trace = traceSystem.getTrace(Trace.DATABASE);
-            trace.info("opening {0} (build {1})", databaseName, Constants.BUILD_ID);
+            initTraceSystem(traceLevelFile, traceLevelSystemOut);
             if (autoServerMode) {
                 if (readOnly ||
                         fileLockMethod == FileLockMethod.NO ||
@@ -677,12 +681,12 @@ public class Database implements DataHandler, CastDataProvider {
             }
             starting = false;
         } else {
+            traceSystem = new TraceSystem(null);
+            initTraceSystem(traceLevelFile, traceLevelSystemOut);
             if (autoServerMode) {
                 throw DbException.getUnsupportedException(
                         "autoServerMode && inMemory");
             }
-            traceSystem = new TraceSystem(null);
-            trace = traceSystem.getTrace(Trace.DATABASE);
             if (dbSettings.mvStore) {
                 getPageStore();
             }
@@ -2959,7 +2963,7 @@ public class Database implements DataHandler, CastDataProvider {
          * This method shouldn't be used in this class, but return a value for
          * safety.
          */
-        return CurrentTimestamp.get();
+        return DateTimeUtils.currentTimestamp();
     }
 
     public Catalog findCatalog(final String catalogName) {
