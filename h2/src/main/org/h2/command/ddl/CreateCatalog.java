@@ -51,8 +51,7 @@ public class CreateCatalog extends DefineCommand {
             }
             throw DbException.get(ErrorCode.CATALOG_ALREADY_EXISTS_1, catalogName);
         }
-        int id = getObjectId();
-        Catalog catalog = new Catalog(db, id, catalogName, user, false);
+        Catalog catalog = new Catalog(db, getObjectId(), session.getDatabase().allocateObjectId(), session.getDatabase().allocateObjectId(), catalogName, user, false);
         catalog.setTableEngineParams(tableEngineParams);
         db.addDatabaseObject(session, catalog);
         catalog.open();

@@ -2,6 +2,7 @@ package org.h2.schema;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -30,13 +31,13 @@ public class Catalog extends DbObjectBase {
     private ArrayList<String> tableEngineParams;
     private boolean metaTablesInitialized = false;
 
-    public Catalog(Database database, int id, String catalogName, User owner,
+    public Catalog(Database database, int id, int info_schema_id, int public_schema_id, String catalogName, User owner,
                   boolean system) {
         super(database, id, catalogName, Trace.CATALOG);
-        infoSchema = new Schema(database, this, Constants.INFORMATION_SCHEMA_ID, database.sysIdentifier("INFORMATION_SCHEMA"),
+        infoSchema = new Schema(database, this, info_schema_id, database.sysIdentifier("INFORMATION_SCHEMA"),
                 database.getSystemUser(),
                 true);
-        mainSchema = new Schema(database, this, Constants.MAIN_SCHEMA_ID, database.sysIdentifier(Constants.SCHEMA_MAIN), database.getSystemUser(),
+        mainSchema = new Schema(database, this, public_schema_id, database.sysIdentifier(Constants.SCHEMA_MAIN), database.getSystemUser(),
                 true);
 
         schemas = new ConcurrentHashMap<>();
@@ -100,6 +101,17 @@ public class Catalog extends DbObjectBase {
                 schema.removeChildrenAndResources(session);
             }
             database.removeMeta(session, getId());
+        } else {
+            List<String> namesToClear = new ArrayList<>();
+            for (Schema schema : schemas.values()) {
+                if (schema.canDrop()) {
+                    namesToClear.add(schema.getName());
+                    schema.removeChildrenAndResources(session);
+                }
+            }
+            for (String name: namesToClear) {
+                schemas.remove(name);
+            }
         }
     }
 
@@ -287,4 +299,7 @@ public class Catalog extends DbObjectBase {
     }
 
 
+    public void remove(Session session, final Schema schema) {
+        schemas.remove(schema.getName());
+    }
 }

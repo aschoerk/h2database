@@ -94,14 +94,11 @@ public class DropDatabase extends DefineCommand {
             }
         } while (runLoopAgain);
 
-
         // TODO session-local temp tables are not removed
         for (Catalog catalog : db.getAllCatalogs()) {
-            if (catalog.canDrop()) {
+            if (catalog.canDrop())
                 db.removeDatabaseObject(session, catalog);
-            }
         }
-
         ArrayList<SchemaObject> list = new ArrayList<>();
         for (SchemaObject obj : db.getAllSchemaObjects(DbObject.SEQUENCE))  {
             // ignore these. the ones we want to drop will get dropped when we

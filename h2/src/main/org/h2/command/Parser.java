@@ -1205,7 +1205,7 @@ public class Parser {
 
     private Schema getSchema(String schemaName) {
         Schema schema = null;
-        if (catalogName != null) {
+        if (catalogName != null && !catalogName.equals(database.getMainCatalog().getName())) {
             Catalog catalog = database.findCatalog(catalogName);
             if(catalog == null) {
                 throw DbException.get(ErrorCode.CATALOG_NOT_FOUND_1, catalogName);
@@ -2357,7 +2357,15 @@ public class Parser {
         } else if (readIf("SCHEMA")) {
             boolean ifExists = readIfExists(false);
             DropSchema command = new DropSchema(session);
-            command.setSchemaName(readUniqueIdentifier());
+            String identifier = readUniqueIdentifier();
+            if (readIf(DOT)) {
+                command.setCatalogName(identifier);
+
+                command.setSchemaName(readUniqueIdentifier());
+            } else {
+                command.setSchemaName(identifier);
+
+            }
             ifExists = readIfExists(ifExists);
             command.setIfExists(ifExists);
             ConstraintActionType dropAction = parseCascadeOrRestrict();

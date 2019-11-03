@@ -140,7 +140,6 @@ public class Database implements DataHandler, CastDataProvider {
     private final byte[] filePasswordHash;
     private final byte[] fileEncryptionKey;
 
-
     private final ConcurrentHashMap<String, Role> roles = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, User> users = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Setting> settings = new ConcurrentHashMap<>();
@@ -712,7 +711,7 @@ public class Database implements DataHandler, CastDataProvider {
         }
         systemUser = new User(this, 0, SYSTEM_USER_NAME, true);
 
-        this.mainCatalog = new Catalog(this, Constants.MAIN_CATALOG_ID, sysIdentifier(databaseShortName), systemUser,
+        this.mainCatalog = new Catalog(this, Constants.MAIN_CATALOG_ID, Constants.INFORMATION_SCHEMA_ID, Constants.MAIN_SCHEMA_ID, sysIdentifier(databaseShortName), systemUser,
                 true);
         catalogs.put(mainCatalog.getName(), mainCatalog);
         mainCatalog.open();

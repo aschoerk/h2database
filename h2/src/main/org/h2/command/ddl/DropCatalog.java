@@ -5,6 +5,8 @@
  */
 package org.h2.command.ddl;
 
+import java.util.ArrayList;
+
 import org.h2.api.ErrorCode;
 import org.h2.command.CommandInterface;
 import org.h2.constraint.ConstraintActionType;
@@ -12,15 +14,14 @@ import org.h2.engine.Database;
 import org.h2.engine.Session;
 import org.h2.message.DbException;
 import org.h2.schema.Catalog;
+import org.h2.schema.SchemaObject;
 
 /**
  * This class represents the statement
- * DROP ALL OBJECTS
+ * DROP CATALOG
  */
 public class DropCatalog extends DefineCommand {
 
-    private boolean dropAllObjects;
-    private boolean deleteFiles;
     private String catalogName;
     private boolean ifExists = false;
     private ConstraintActionType dropAction;
@@ -46,20 +47,32 @@ public class DropCatalog extends DefineCommand {
         Database db = session.getDatabase();
         db.lockMeta(session);
 
-        // TODO session-local temp tables are not removed
-        for (Catalog catalog: db.getAllCatalogs()) {
-            if (catalog.getName().equals(catalogName)) {
-                if (!catalog.canDrop()) {
-                    throw DbException.get(ErrorCode.CATALOG_CAN_NOT_BE_DROPPED_1, catalogName);
-                }
-                db.removeDatabaseObject(session, catalog);
-                return 0;
+        Catalog catalog = db.findCatalog(catalogName);
+        if (catalog == null) {
+            if (!ifExists) {
+                throw DbException.get(ErrorCode.CATALOG_NOT_FOUND_1, catalogName);
             }
+        } else {
+            if (!catalog.canDrop()) {
+                throw DbException.get(ErrorCode.CATALOG_CAN_NOT_BE_DROPPED_1, catalogName);
+            }
+            if (dropAction == ConstraintActionType.RESTRICT && !catalog.isEmpty()) {
+                ArrayList<SchemaObject> all = catalog.getAllSchemaObjects();
+                int size = all.size();
+                if (size > 0) {
+                    StringBuilder builder = new StringBuilder();
+                    for (int i = 0; i < size; i++) {
+                        if (i > 0) {
+                            builder.append(", ");
+                        }
+                        builder.append(all.get(i).getName());
+                    }
+                    throw DbException.get(ErrorCode.CANNOT_DROP_2, catalogName, builder.toString());
+                }
+            }
+            db.removeDatabaseObject(session, catalog);
         }
-        if (ifExists)
-            return 0;
-        else
-            throw DbException.get(ErrorCode.CATALOG_NOT_FOUND_1, catalogName);
+        return 0;
     }
 
 

@@ -12,6 +12,7 @@ import org.h2.constraint.ConstraintActionType;
 import org.h2.engine.Database;
 import org.h2.engine.Session;
 import org.h2.message.DbException;
+import org.h2.schema.Catalog;
 import org.h2.schema.Schema;
 import org.h2.schema.SchemaObject;
 
@@ -22,6 +23,7 @@ import org.h2.schema.SchemaObject;
 public class DropSchema extends DefineCommand {
 
     private String schemaName;
+    private String catalogName;
     private boolean ifExists;
     private ConstraintActionType dropAction;
 
@@ -40,8 +42,22 @@ public class DropSchema extends DefineCommand {
         session.getUser().checkSchemaAdmin();
         session.commit(true);
         Database db = session.getDatabase();
-        Schema schema = db.findSchema(schemaName);
-        if (schema == null) {
+        Schema schema = null;
+        Catalog catalog = null;
+        if (catalogName != null) {
+            catalog = db.findCatalog(catalogName);
+            if (catalog != null) {
+                schema = catalog.findSchema(schemaName);
+            } else {
+                if (!ifExists) {
+                    throw DbException.get(ErrorCode.CATALOG_NOT_FOUND_1, schemaName);
+                }
+            }
+        } else {
+            catalog = db.findCatalog(db.getShortName());
+            schema = db.findSchema(schemaName);
+        }
+        if (catalog == null || schema == null) {
             if (!ifExists) {
                 throw DbException.get(ErrorCode.SCHEMA_NOT_FOUND_1, schemaName);
             }
@@ -63,7 +79,8 @@ public class DropSchema extends DefineCommand {
                     throw DbException.get(ErrorCode.CANNOT_DROP_2, schemaName, builder.toString());
                 }
             }
-            db.removeDatabaseObject(session, schema);
+            catalog.remove(session, schema);
+            schema.removeChildrenAndResources(session);
         }
         return 0;
     }
@@ -81,4 +98,7 @@ public class DropSchema extends DefineCommand {
         return CommandInterface.DROP_SCHEMA;
     }
 
+    public void setCatalogName(final String identifier) {
+        this.catalogName = identifier;
+    }
 }
