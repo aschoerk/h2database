@@ -868,7 +868,7 @@ public class Parser {
         case END:
         case SEMICOLON:
             c = new NoOperation(session);
-            setSQL(c, null, start);
+            setSQL(c, start);
             return c;
         case PARAMETER:
             // read the ? as a parameter
@@ -887,7 +887,7 @@ public class Parser {
             break;
         case WITH:
             read();
-            c = parseWithStatementOrQuery();
+            c = parseWithStatementOrQuery(start);
             break;
         case IDENTIFIER:
             if (currentTokenQuoted) {
@@ -929,7 +929,7 @@ public class Parser {
                 break;
             case 'D':
                 if (readIf("DELETE")) {
-                    c = parseDelete();
+                    c = parseDelete(start);
                 } else if (readIf("DROP")) {
                     c = parseDrop();
                 } else if (readIf("DECLARE")) {
@@ -969,12 +969,12 @@ public class Parser {
                 break;
             case 'I':
                 if (readIf("INSERT")) {
-                    c = parseInsert();
+                    c = parseInsert(start);
                 }
                 break;
             case 'M':
                 if (readIf("MERGE")) {
-                    c = parseMerge();
+                    c = parseMerge(start);
                 }
                 break;
             case 'P':
@@ -997,7 +997,7 @@ public class Parser {
                 } else if (readIf("RELEASE")) {
                     c = parseReleaseSavepoint();
                 } else if (database.getMode().replaceInto && readIf("REPLACE")) {
-                    c = parseReplace();
+                    c = parseReplace(start);
                 }
                 break;
             case 'S':
@@ -1020,7 +1020,7 @@ public class Parser {
                 break;
             case 'U':
                 if (readIf("UPDATE")) {
-                    c = parseUpdate();
+                    c = parseUpdate(start);
                 } else if (readIf("USE")) {
                     c = parseUse();
                 }
@@ -1039,7 +1039,8 @@ public class Parser {
             }
             parameters = indexedParameterList;
         }
-        if (readIf(OPEN_BRACE)) {
+        boolean withParamValues = readIf(OPEN_BRACE);
+        if (withParamValues) {
             do {
                 int index = (int) readLong() - 1;
                 if (index < 0 || index >= parameters.size()) {
@@ -1060,7 +1061,9 @@ public class Parser {
             }
             parameters.clear();
         }
-        setSQL(c, null, start);
+        if (withParamValues || c.getSQL() == null) {
+            setSQL(c, start);
+        }
         return c;
     }
 
@@ -1305,10 +1308,9 @@ public class Parser {
         return rowId ? filter.getRowIdColumn() : filter.getTable().getColumn(columnName);
     }
 
-    private Update parseUpdate() {
+    private Update parseUpdate(int start) {
         Update command = new Update(session);
         currentPrepared = command;
-        int start = lastParseIndex;
         Expression limit = null;
         if (database.getMode().getEnum() == ModeEnum.MSSQLServer && readIf("TOP")) {
             read(OPEN_PAREN);
@@ -1374,7 +1376,7 @@ public class Parser {
                 command.setLimit(limit);
             }
         }
-        setSQL(command, "UPDATE", start);
+        setSQL(command, start);
     }
 
     private TableFilter readSimpleTableFilter(int orderInFrom, Collection<String> excludeTokens) {
@@ -1393,14 +1395,13 @@ public class Parser {
                 currentSelect, orderInFrom, null);
     }
 
-    private Delete parseDelete() {
+    private Delete parseDelete(int start) {
         Delete command = new Delete(session);
         Expression limit = null;
         if (readIf("TOP")) {
             limit = readTerm().optimize(session);
         }
         currentPrepared = command;
-        int start = lastParseIndex;
         if (!readIf(FROM) && database.getMode().getEnum() == ModeEnum.MySQL) {
             readIdentifierWithSchema();
             read(FROM);
@@ -1414,7 +1415,7 @@ public class Parser {
             limit = readTerm().optimize(session);
         }
         command.setLimit(limit);
-        setSQL(command, "DELETE", start);
+        setSQL(command, start);
         return command;
     }
 
@@ -1628,8 +1629,7 @@ public class Parser {
         return query;
     }
 
-    private Prepared parseMerge() {
-        int start = lastParseIndex;
+    private Prepared parseMerge(int start) {
         read("INTO");
         List<String> excludeIdentifiers = Collections.singletonList("KEY");
         TableFilter targetTableFilter = readSimpleTableFilter(0, excludeIdentifiers);
@@ -1659,6 +1659,7 @@ public class Parser {
         } else {
             command.setQuery(parseQuery());
         }
+        setSQL(command, start);
         return command;
     }
 
@@ -1713,7 +1714,7 @@ public class Parser {
             }
         } while (readIf("WHEN"));
 
-        setSQL(command, "MERGE", start);
+        setSQL(command, start);
         return command;
     }
 
@@ -1736,7 +1737,7 @@ public class Parser {
             if (readIf(WHERE)) {
                 deleteCommand.setCondition(readExpression());
             }
-            setSQL(deleteCommand, "DELETE", startMatched);
+            setSQL(deleteCommand, startMatched);
         }
         if (updateCommand != null || deleteCommand != null) {
             MergeUsing.WhenMatched when = new MergeUsing.WhenMatched(command);
@@ -1767,7 +1768,7 @@ public class Parser {
         }
     }
 
-    private Insert parseInsert() {
+    private Insert parseInsert(int start) {
         Insert command = new Insert(session);
         currentPrepared = command;
         Mode mode = database.getMode();
@@ -1821,6 +1822,7 @@ public class Parser {
         if (mode.isolationLevelInSelectOrInsertStatement) {
             parseIsolationClause();
         }
+        setSQL(command, start);
         return command;
     }
 
@@ -1868,7 +1870,7 @@ public class Parser {
     /**
      * MySQL compatibility. REPLACE is similar to MERGE.
      */
-    private Merge parseReplace() {
+    private Merge parseReplace(int start) {
         Merge command = new Merge(session, true);
         currentPrepared = command;
         read("INTO");
@@ -1888,6 +1890,7 @@ public class Parser {
         } else {
             command.setQuery(parseQuery());
         }
+        setSQL(command, start);
         return command;
     }
 
@@ -2045,19 +2048,20 @@ public class Parser {
         if (!identifiersToUpper) {
             resultOptionName = StringUtils.toUpperEnglish(resultOptionName);
         }
+        int start = lastParseIndex;
         DataChangeStatement statement;
         ResultOption resultOption = ResultOption.FINAL;
         switch (resultOptionName) {
         case "OLD":
             resultOption = ResultOption.OLD;
             if (readIf("UPDATE")) {
-                statement = parseUpdate();
+                statement = parseUpdate(start);
             } else if (readIf("DELETE")) {
-                statement = parseDelete();
+                statement = parseDelete(start);
             } else if (readIf("MERGE")) {
-                statement = (DataChangeStatement) parseMerge();
+                statement = (DataChangeStatement) parseMerge(start);
             } else if (database.getMode().replaceInto && readIf("REPLACE")) {
-                statement = parseReplace();
+                statement = parseReplace(start);
             } else {
                 throw getSyntaxError();
             }
@@ -2067,13 +2071,13 @@ public class Parser {
             //$FALL-THROUGH$
         case "FINAL":
             if (readIf("INSERT")) {
-                statement = parseInsert();
+                statement = parseInsert(start);
             } else if (readIf("UPDATE")) {
-                statement = parseUpdate();
+                statement = parseUpdate(start);
             } else if (readIf("MERGE")) {
-                statement = (DataChangeStatement) parseMerge();
+                statement = (DataChangeStatement) parseMerge(start);
             } else if (database.getMode().replaceInto && readIf("REPLACE")) {
-                statement = parseReplace();
+                statement = parseReplace(start);
             } else {
                 throw getSyntaxError();
             }
@@ -2653,14 +2657,15 @@ public class Parser {
             command.setCommand(query);
             break;
         default:
+            int start = lastParseIndex;
             if (readIf("DELETE")) {
-                command.setCommand(parseDelete());
+                command.setCommand(parseDelete(start));
             } else if (readIf("UPDATE")) {
-                command.setCommand(parseUpdate());
+                command.setCommand(parseUpdate(start));
             } else if (readIf("INSERT")) {
-                command.setCommand(parseInsert());
+                command.setCommand(parseInsert(start));
             } else if (readIf("MERGE")) {
-                command.setCommand(parseMerge());
+                command.setCommand(parseMerge(start));
             } else {
                 throw getSyntaxError();
             }
@@ -2681,7 +2686,7 @@ public class Parser {
         return command;
     }
 
-    private Prepared parseWithStatementOrQuery() {
+    private Prepared parseWithStatementOrQuery(int start) {
         int paramIndex = parameters.size();
         Prepared command = parseWith();
         int size = parameters.size();
@@ -2694,6 +2699,7 @@ public class Parser {
             Query query = (Query) command;
             query.init();
         }
+        setSQL(command, start);
         return command;
     }
 
@@ -2719,7 +2725,7 @@ public class Parser {
             command = new SelectUnion(session, type, command, parseQuerySub());
         }
         parseEndOfQuery(command);
-        setSQL(command, null, start);
+        setSQL(command, start);
         return command;
     }
 
@@ -2866,10 +2872,11 @@ public class Parser {
             query.setNeverLazy(true);
             return query;
         }
+        int start = lastParseIndex;
         if (readIf(SELECT)) {
-            return parseSelect();
+            return parseSelect(start);
         } else if (readIf(TABLE)) {
-            return parseExplicitTable();
+            return parseExplicitTable(start);
         }
         read(VALUES);
         return parseValues();
@@ -2990,9 +2997,8 @@ public class Parser {
         command.setExpressions(expressions);
     }
 
-    private Select parseSelect() {
+    private Select parseSelect(int start) {
         Select command = new Select(session, currentSelect);
-        int start = lastParseIndex;
         Select oldSelect = currentSelect;
         Prepared oldPrepared = currentPrepared;
         currentSelect = command;
@@ -3054,33 +3060,23 @@ public class Parser {
         command.setParameterList(parameters);
         currentSelect = oldSelect;
         currentPrepared = oldPrepared;
-        setSQL(command, "SELECT", start);
+        setSQL(command, start);
         return command;
     }
 
-    private Query parseExplicitTable() {
-        int start = lastParseIndex;
+    private Query parseExplicitTable(int start) {
         Table table = readTableOrView();
         Select command = new Select(session, currentSelect);
         TableFilter filter = new TableFilter(session, table, null, rightsChecked,
                 command, orderInFrom++, null);
         command.addTableFilter(filter, true);
         command.setExplicitTable();
-        setSQL(command, "TABLE", start);
+        setSQL(command, start);
         return command;
     }
 
-    private void setSQL(Prepared command, String start, int startIndex) {
-        int endIndex = lastParseIndex;
-        String sql;
-        if (start != null) {
-            StringBuilder builder = new StringBuilder(start.length() + endIndex - startIndex + 1)
-                    .append(start).append(' ');
-            sql = StringUtils.trimSubstring(builder, originalSQL, startIndex, endIndex).toString();
-        } else {
-            sql = StringUtils.trimSubstring(originalSQL, startIndex, endIndex);
-        }
-        command.setSQL(sql);
+    private void setSQL(Prepared command, int startIndex) {
+        command.setSQL(StringUtils.trimSubstring(originalSQL, startIndex, lastParseIndex));
     }
 
     private Expression readExpressionOrDefault() {
@@ -3964,8 +3960,20 @@ public class Parser {
             if (!readIf(CLOSE_PAREN)) {
                 int i = 0;
                 do {
-                    function.addParameter(readExpression());
-                    columns.add(new Column("C" + ++i, Value.NULL));
+                    Expression expr = readExpression();
+                    TypeInfo columnType = TypeInfo.TYPE_NULL;
+                    if (expr.isConstant()) {
+                        expr = expr.optimize(session);
+                        TypeInfo exprType = expr.getType();
+                        if (exprType.getValueType() == Value.ARRAY) {
+                            ExtTypeInfoArray extTypeInfoArray = (ExtTypeInfoArray) exprType.getExtTypeInfo();
+                            if (extTypeInfoArray != null) {
+                                columnType = extTypeInfoArray.getComponentType();
+                            }
+                        }
+                    }
+                    function.addParameter(expr);
+                    columns.add(new Column("C" + ++i, columnType));
                 } while (readIfMore());
             }
             if (readIf(WITH)) {
@@ -7004,6 +7012,7 @@ public class Parser {
         while (readIf(OPEN_PAREN)) {
             parentheses++;
         }
+        int start = lastParseIndex;
         if (isToken(SELECT) || isToken(VALUES)) {
             p = parseWithQuery();
         } else if (isToken(TABLE)) {
@@ -7017,16 +7026,16 @@ public class Parser {
                 throw DbException.get(ErrorCode.SYNTAX_ERROR_1, WITH_STATEMENT_SUPPORTS_LIMITED_SUB_STATEMENTS);
             }
         } else if (readIf("INSERT")) {
-            p = parseInsert();
+            p = parseInsert(start);
             p.setPrepareAlways(true);
         } else if (readIf("UPDATE")) {
-            p = parseUpdate();
+            p = parseUpdate(start);
             p.setPrepareAlways(true);
         } else if (readIf("MERGE")) {
-            p = parseMerge();
+            p = parseMerge(start);
             p.setPrepareAlways(true);
         } else if (readIf("DELETE")) {
-            p = parseDelete();
+            p = parseDelete(start);
             p.setPrepareAlways(true);
         } else if (readIf("CREATE")) {
             if (!isToken(TABLE)) {
